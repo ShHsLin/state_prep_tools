@@ -1,5 +1,18 @@
 import numpy as np
 
+# class StateVector(np.ndarray):
+#     def __new__(cls, input_array):
+#         # Convert the input to a numpy array
+#         obj = np.asarray(input_array).view(cls)
+#         # Set the system size of the state vector
+#         obj.L = int(np.rint(np.log2(obj.size)))
+#         assert 2**obj.L == obj.size, "State vector size must be a power of 2."
+#         return obj
+# 
+#     def __array_finalize__(self, obj):
+#         if obj is None: return
+#         self.L = getattr(obj, 'L', None)
+
 class StateVector(object):
     def __init__(self, vector):
         self.state_vector = np.array(vector).flatten()
@@ -44,6 +57,9 @@ class StateVector(object):
             theta = np.reshape(self.state_vector, [(2**idx0), 2, 2**(idx1-idx0-1), 2, 2**(self.L-(idx1+1))])
             theta = np.tensordot(gate, theta, [[2, 3], [1, 3]])  #[i, j, left, mid, right]
             self.state_vector = np.transpose(theta, [2, 0, 3, 1, 4]).flatten()
+
+            # Create a new state vector and return
+            # return StateVector(np.transpose(theta, [2, 0, 3, 1, 4]).flatten())
         else:
             raise ValueError("Only 1 or 2 indices are supported.")
 

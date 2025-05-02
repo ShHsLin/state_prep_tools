@@ -45,10 +45,11 @@ site_idx_to_str = {
 }
 
 
-depth = int(sys.argv[1])
+seq = int(sys.argv[1])
+depth = int(sys.argv[2])
 
 print("================  Id | XX+YY | XY-YX |  ZZ  |  Z1  |  Z2  ==============")
-pairs_of_indices_and_Us = pickle.load(open(f'circuit_sequence_3_complex_depth{depth}.pickle', 'rb'))
+pairs_of_indices_and_Us = pickle.load(open(f'circuit_sequence_{seq}_complex_depth{depth}.pickle', 'rb'))
 for idx in range(len(pairs_of_indices_and_Us)):
     U = pairs_of_indices_and_Us[idx][1]
 
@@ -72,7 +73,10 @@ for idx in range(len(pairs_of_indices_and_Us)):
     coefficients = np.real_if_close(coefficients, 1e-10)
 
     indices = pairs_of_indices_and_Us[idx][0]
-    print("coefficients: ", coefficients, "between:", site_idx_to_str[indices[0]], "and", site_idx_to_str[indices[1]])
+    if np.allclose(coefficients, [-1.571, 1.571, 0., 0., 0.785, 0.785], rtol=1e-3):
+        print("--- fSWAP ----")
+    else:
+        print("coefficients: ", coefficients, "between:", site_idx_to_str[indices[0]], "and", site_idx_to_str[indices[1]])
 
     list_of_operators = np.array([np.eye(4), hop, current, ZZ, Z1, Z2])
     H_reconstructed = np.tensordot(coefficients, list_of_operators, [[0], [0]])

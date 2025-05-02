@@ -1,12 +1,13 @@
 import numpy as np
+import scipy
 from exact_sim import StateVector
-import misc
+import utils.misc as misc
 
-# General circuit
-class GenericCircuit():
-    def __init__(self, pairs_of_indices_and_Us):
+# Base class for circuits
+class Circuit():
+    def __init__(self, pairs_of_indices_and_Us, trainable=None):
         '''
-        The general circuit is given by a list of pairs of indices and
+        The circuit is given by a list of pairs of indices and
         unitaries, where the indices are the indices of the qubits that
         the unitaries act on.
 
@@ -24,6 +25,162 @@ class GenericCircuit():
         self.pairs_of_indices_and_Us = pairs_of_indices_and_Us
         self.num_gates = len(pairs_of_indices_and_Us)
         self.num_qubits = max([max(pair) for pair, _ in pairs_of_indices_and_Us]) + 1
+        if trainable is None:
+            self.trainable = [True] * self.num_gates
+        else:
+            assert type(trainable) == list
+            assert len(trainable) == self.num_gates
+            self.trainable = trainable
+
+    def get_params(self):
+        raise NotImplementedError('get_params is not implemented.')
+
+    def set_params(self, params):
+        raise NotImplementedError('set_params is not implemented.')
+
+
+# Fermionic circuit
+class FermionicCircuit(Circuit):
+    def __init__(self, pairs_of_indices_and_Us, trainable=None):
+        super().__init__(pairs_of_indices_and_Us, trainable) 
+        self.fSWAP = np.array([[1, 0, 0, 0],
+                               [0, 0, 1, 0],
+                               [0, 1, 0, 0],
+                               [0, 0, 0, -1]],).reshape([2, 2, 2, 2])
+
+    def export_to_QubitCircuit(self):
+        '''
+        Decorate the fermionic gates with fermionic swap gates.
+        The resulting circuit is a qubit circuit.
+        '''
+        qubit_cirucit_pairs_of_indices_and_Us = []
+        qubit_circuit_trainable = []
+
+        for idx, indices_U in enumerate(self.pairs_of_indices_and_Us):
+            indices, U = indices_U
+            assert indices[0] < indices[1]
+            if indices[1] - indices[0] == 1:
+                qubit_cirucit_pairs_of_indices_and_Us.append(indices_U)
+                qubit_circuit_trainable.append(self.trainable[idx])
+            else:
+                # We need to apply fSWAP gates
+                # Apply the fSWAP gate to move the left qubit
+                for move_idx in range(indices[0], indices[1]-1):
+                    pair = ((move_idx, move_idx+1), self.fSWAP)
+                    qubit_cirucit_pairs_of_indices_and_Us.append(pair)
+                    qubit_circuit_trainable.append(False)
+
+                # Apply the unitary
+                pair = ((indices[1]-1, indices[1]), U)
+                qubit_cirucit_pairs_of_indices_and_Us.append(pair)
+                qubit_circuit_trainable.append(self.trainable[idx])
+
+                # Apply the fSWAP gate to move back the left qubit
+                for move_idx in range(indices[1]-1, indices[0], -1):
+                    pair = ((move_idx-1, move_idx), self.fSWAP)
+                    qubit_cirucit_pairs_of_indices_and_Us.append(pair)
+                    qubit_circuit_trainable.append(False)
+
+        # Now we have a qubit circuit
+        qubit_circuit = QubitCircuit(qubit_cirucit_pairs_of_indices_and_Us,
+                                     qubit_circuit_trainable)
+        return qubit_circuit
+
+
+# Quantum circuit that acts on qubits
+class QubitCircuit(Circuit):
+    def __init__(self, pairs_of_indices_and_Us, trainable=None):
+        super().__init__(pairs_of_indices_and_Us, trainable)
+
+    def to_state_vector(self, init_state=None):
+        '''
+        Given the initial state, we apply the circuit to the initial
+        state and return the final state.
+
+        Parameters
+        ----------
+            init_state: np.ndarray
+            the initial state
+
+        Returns
+        -------
+            np.ndarray
+            the final state
+        '''
+        if init_state is None:
+            init_state = np.zeros([2 ** self.num_qubits])
+            init_state[0] = 1
+
+        iter_state = StateVector(init_state)
+
+        # Apply the circuit to the initial state
+        for gate_idx in range(self.num_gates):
+            gate = self.pairs_of_indices_and_Us[gate_idx][1]
+            indices = self.pairs_of_indices_and_Us[gate_idx][0]
+            gate = np.reshape(gate, [2, 2, 2, 2])
+            iter_state.apply_gate(gate, indices)
+
+        return iter_state.state_vector
+
+    def get_params(self):
+        '''
+        Get the parameters of the circuit.
+
+        Returns
+        -------
+            params: List[np.ndarray]
+            the parameters of the circuit
+        '''
+        params = []
+        for idx, indices_U in enumerate(self.pairs_of_indices_and_Us):
+            indices, U = indices_U
+            if self.trainable[idx]:
+                params.append(get_U1_unitary_params(U))
+                
+        return params
+
+    def set_params(self, params):
+        '''
+        Set the parameters of the circuit.
+
+        Parameters
+        ----------
+            params: List[np.ndarray]
+            the parameters of the circuit
+        '''
+        if params.ndim == 1:
+            params = params.reshape(len(self.trainable), -1)
+            assert params.shape[1] in [6, 16]
+
+        assert len(params) == len(self.trainable)
+        params_idx = 0
+        for idx, indices_U in enumerate(self.pairs_of_indices_and_Us):
+            indices, U = indices_U
+            if self.trainable[idx]:
+                new_U = get_U1_unitary_gate(params[params_idx])
+                self.pairs_of_indices_and_Us[idx] = (indices, new_U)
+                params_idx += 1
+
+        assert params_idx == len(params)
+        return
+
+    def get_energy(self, H, init_state=None):
+        '''
+        Given the Hamiltonian, we apply the circuit to the initial
+        state and return the final state.
+
+        Parameters
+        ----------
+            H: np.ndarray
+            the Hamiltonian
+
+        Returns
+        -------
+            energy: np.float
+            
+        '''
+        state_vec = self.to_state_vector(init_state)
+        return state_vec.conj() @ H @ state_vec
 
     def polar_opt(self, list_of_target_states, list_of_initial_states,
                   list_of_bottom_states=None,
@@ -116,9 +273,13 @@ class GenericCircuit():
             # Now the bottom states are the states without remove_gate.
             # We can now variational find the optimal gate to update.
 
-            new_gate = var_gate_exact_list_of_states(list_of_top_states, remove_indices,
-                                                     list_of_bottom_states,)
-            self.pairs_of_indices_and_Us[gate_idx] = (remove_indices, new_gate)
+            if self.trainable[gate_idx]:
+                # We only update the trainable gates
+                new_gate = var_gate_exact_list_of_states(list_of_top_states, remove_indices,
+                                                         list_of_bottom_states,)
+                self.pairs_of_indices_and_Us[gate_idx] = (remove_indices, new_gate)
+            else:
+                new_gate = self.pairs_of_indices_and_Us[gate_idx][1]
 
             new_gate_conj = new_gate.reshape([4, 4]).T.conj()
             new_gate_conj = new_gate_conj.reshape([2, 2, 2, 2])
@@ -149,9 +310,12 @@ class GenericCircuit():
             # Now the top states are the states without remove_gate.
             # We can now variational find the optimal gate to update.
 
-            new_gate = var_gate_exact_list_of_states(list_of_top_states, remove_indices,
-                                                     list_of_bottom_states,)
-            self.pairs_of_indices_and_Us[gate_idx] = (remove_indices, new_gate)
+            if self.trainable[gate_idx]:
+                new_gate = var_gate_exact_list_of_states(list_of_top_states, remove_indices,
+                                                         list_of_bottom_states,)
+                self.pairs_of_indices_and_Us[gate_idx] = (remove_indices, new_gate)
+            else:
+                new_gate = self.pairs_of_indices_and_Us[gate_idx][1]
 
             for state_idx in range(num_states):
                 list_of_bottom_states[state_idx].apply_gate(new_gate, remove_indices)
@@ -208,6 +372,9 @@ def var_gate_exact(top_state, indices, bottom_state):
 
 def var_gate_exact_old(top_state, idx, bottom_state):
     '''
+    [TODO] Remove the code. The code is old and only supported
+    indices of the form (i, i+1).
+
     Given the top state and the bottom state, we find the gate that
     argmax_{gate} <top_state | gate | bottom_state>.
 
@@ -288,3 +455,98 @@ def var_gate_exact_list_of_states(top_states, indices, bottom_states):
     return new_gate
 
 
+
+print("We need to move this function to gate.py")
+def get_unitary_gate(h_params):
+    """
+    Compute the unitary gate U = exp(-i H) from the Hamiltonian matrix
+
+    Parameters
+    ----------
+    H_mat : np.array
+        Hamiltonian matrix
+
+    Returns
+    -------
+    U : np.array
+        Unitary gate
+    """
+    H_mat_real = np.array([[h_params[0], h_params[1], h_params[2], h_params[3]],
+                           [h_params[1], h_params[4], h_params[5], h_params[6]],
+                           [h_params[2], h_params[5], h_params[7], h_params[8]],
+                           [h_params[3], h_params[6], h_params[8], h_params[9]]])
+    H_mat_imag = np.array([[0, 1j*h_params[10], 1j*h_params[11], 1j*h_params[12]],
+                           [-1j*h_params[10], 0, 1j*h_params[13], 1j*h_params[14]],
+                           [-1j*h_params[11], -1j*h_params[13], 0, 1j*h_params[15]],
+                           [-1j*h_params[12], -1j*h_params[14], -1j*h_params[15], 0]])
+    H_mat = H_mat_real + H_mat_imag
+    return scipy.linalg.expm(-1j * H_mat)
+
+def get_unitary_params(unitary):
+    """
+    Compute the vector of parameters from the unitary U.
+    We first find out the Hermitian matrix H_mat
+    defining the unitary U = exp(-i H).
+    We want to map the Hermitian matrix to a vector of real-valued parameters.
+
+    Parameters
+    ----------
+    unitary : np.array
+        an unitary matrix
+
+    Returns
+    -------
+    params : np.array
+        Vector of parameters
+    """
+    H_mat = scipy.linalg.logm(unitary) / (-1.j)
+    # concatenate the real and imaginary parts of the upper triangular part of the matrix
+    return np.concatenate([H_mat[np.triu_indices(4, k=0)].real,
+                           H_mat[np.triu_indices(4, k=1)].imag])
+
+
+def get_U1_unitary_gate(h_params):
+    """
+    Compute the unitary gate U = exp(-i H) from the Hamiltonian matrix
+
+    Parameters
+    ----------
+    H_mat : np.array
+        Hamiltonian matrix
+
+    Returns
+    -------
+    U : np.array
+        Unitary gate
+    """
+    H_mat_real = np.array([[h_params[0], 0, 0, 0],
+                           [0, h_params[1], h_params[2], 0],
+                           [0, h_params[2], h_params[3], 0],
+                           [0, 0, 0, h_params[4]]])
+    H_mat_imag = np.array([[0, 0, 0, 0],
+                           [0, 0, 1j*h_params[5], 0],
+                           [0, -1j*h_params[5], 0, 0],
+                           [0, 0, 0, 0]])
+    H_mat = H_mat_real + H_mat_imag
+    return scipy.linalg.expm(-1j * H_mat)
+
+def get_U1_unitary_params(unitary):
+    """
+    Compute the vector of parameters from the unitary U.
+    We first find out the Hermitian matrix H_mat
+    defining the unitary U = exp(-i H).
+    We want to map the Hermitian matrix to a vector of real-valued parameters.
+
+    Parameters
+    ----------
+    unitary : np.array
+        an unitary matrix
+
+    Returns
+    -------
+    params : np.array
+        Vector of parameters
+    """
+    H_mat = scipy.linalg.logm(unitary) / (-1.j)
+    return np.array([H_mat[0, 0].real, H_mat[1, 1].real, H_mat[1, 2].real,
+                     H_mat[2, 2].real, H_mat[3, 3].real, H_mat[1, 2].imag])

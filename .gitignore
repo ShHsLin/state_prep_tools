@@ -1,0 +1,6 @@
+*.npy
+*.txt
+*.pkl
+*.pickle
+.DS_Store
+__pycache__

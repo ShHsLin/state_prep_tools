@@ -44,4 +44,31 @@ def svd(theta, compute_uv=True, full_matrices=True):
 
     return U, S, Vd
 
+def get_random_u1_2q_gate(using_complex=True, scale=1e-4):
+    """
+    Generate a random U1 2-qubit unitary gate.
+   """
+    if using_complex:
+        M = np.random.rand(2, 2) + 1j * np.random.rand(2, 2) - 0.5 - 0.5j
+    else:
+        M = np.random.rand(2, 2) - 0.5
 
+    M = M * scale + np.eye(2)
+    Q, R = np.linalg.qr(M)
+
+    if using_complex:
+        two_qubit_unitary = np.zeros((4, 4), dtype=np.complex128)
+    else:
+        two_qubit_unitary = np.zeros((4, 4), dtype=np.float64)
+
+    two_qubit_unitary[0, 0] = 1.
+    two_qubit_unitary[1:3, 1:3] = Q
+
+    if using_complex:
+        scale = np.random.rand(1) * np.pi * 2
+        phase = np.exp(1j * scale)
+        two_qubit_unitary[3, 3] = phase.item() 
+    else:
+        two_qubit_unitary[3, 3] = 1.
+
+    return two_qubit_unitary
