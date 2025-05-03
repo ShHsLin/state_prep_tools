@@ -1,14 +1,13 @@
 import numpy as np
 import scipy
+import stateprep.circuit as circuit
+import stateprep.exact_sim as exact_sim
+
+import stateprep.utils.misc as misc
+from stateprep.utils.common_setup import *
+
 import sys
-sys.path.append('../')
-import circuit
-import exact_sim
-
-import utils.misc as misc
-from utils.common_setup import *
-
-sys.path.append('../../state_vec_sim/')
+sys.path.append('../../../state_vec_sim/')
 from many_body import gen_H_2d_XXZ
 from scipy.sparse.linalg import eigsh
 
@@ -60,7 +59,7 @@ if __name__ == '__main__':
     init_vec = np.zeros((2**N,), dtype=np.complex128)
     init_vec[int('011101110', 2)] = 1.
 
-    H = gen_H_2d_XXZ(Lx, Ly, -0., True)
+    H = gen_H_2d_XXZ(Lx, Ly, -0.737073337887132, True)
     H = - H
     evals_small, evecs_small = eigsh(H, 16, which='SA', v0=init_vec)
     print(evals_small)

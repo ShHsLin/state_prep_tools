@@ -1,9 +1,11 @@
 import numpy as np
 import sys
 sys.path.append("..")
+import gate
 import circuit
 # np.set_printoptions(precision=3)
 import pickle
+import utils.misc as misc
 
 """
 q4,q5   q6,q7
@@ -51,35 +53,6 @@ We denote it as |00>, |10>, |01>, |11> respectively.
 # The tool kit should include trimming the circuit.
 
 """
-
-def get_random_u1_2q_gate(using_complex=True):
-    """
-    Generate a random U1 2-qubit unitary gate.
-    """
-    if using_complex:
-        M = np.random.rand(2, 2) + 1j * np.random.rand(2, 2) - 0.5 - 0.5j
-    else:
-        M = np.random.rand(2, 2) - 0.5
-
-    M = M * 1e-4 + np.eye(2)
-    Q, R = np.linalg.qr(M)
-
-    if using_complex:
-        two_qubit_unitary = np.zeros((4, 4), dtype=np.complex128)
-    else:
-        two_qubit_unitary = np.zeros((4, 4), dtype=np.float64)
-
-    two_qubit_unitary[0, 0] = 1.
-    two_qubit_unitary[1:3, 1:3] = Q
-
-    if using_complex:
-        scale = np.random.rand(1) * np.pi * 2
-        phase = np.exp(1j * scale)
-        two_qubit_unitary[3, 3] = phase.item() 
-    else:
-        two_qubit_unitary[3, 3] = 1.
-
-    return two_qubit_unitary
 
 def gen_vec_from_dict(string_coeff_dict, using_complex=True):
     """
@@ -209,8 +182,9 @@ if __name__ == "__main__":
     # (iii) complex + [(1,2), (3,4), (5,6), (7,0)]
     # (iv) real + [(1,2), (3,4), (5,6), (7,0)]
 
-    seq = int(sys.argv[1])
-    depth = int(sys.argv[2])
+    # seq = int(sys.argv[1])
+    seq = 4
+    depth = int(sys.argv[1])
 
 
     Id = np.eye(4)
@@ -221,14 +195,15 @@ if __name__ == "__main__":
                        (0, 1), (2, 3), (4, 5), (6, 7),
                        (1, 3), (3, 5), (5, 7), (1, 7),
                        ]
-    if seq == 4:
-        list_of_indices = list_of_indices + [(1, 2), (3, 4), (5, 6), (0, 7),]
+    # if seq == 4:
+    #     list_of_indices = list_of_indices + [(1, 2), (3, 4), (5, 6), (0, 7),]
 
 
     pair_of_indices_and_Us = []
     for depth_idx in range(depth):
         for indices in list_of_indices:
-            pair_of_indices_and_Us.append((indices, get_random_u1_2q_gate()))
+            # pair_of_indices_and_Us.append((indices, misc.get_random_u1_2q_gate()))
+            pair_of_indices_and_Us.append((indices, gate.U1UnitaryGate(scale=1e-1)))
 
     C = circuit.FermionicCircuit(pair_of_indices_and_Us)
     C = C.export_to_QubitCircuit()

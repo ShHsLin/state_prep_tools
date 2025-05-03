@@ -1,7 +1,7 @@
 import numpy as np
 import scipy
-from exact_sim import StateVector
-import utils.misc as misc
+import stateprep.utils.misc as misc
+from stateprep.exact_sim import StateVector
 
 # Base class for circuits
 class Circuit():
@@ -135,7 +135,8 @@ class QubitCircuit(Circuit):
         for idx, indices_U in enumerate(self.pairs_of_indices_and_Us):
             indices, U = indices_U
             if self.trainable[idx]:
-                params.append(get_U1_unitary_params(U))
+                # params.append(get_U1_unitary_params(U))
+                params.append(U.get_parameters())
                 
         return params
 
@@ -157,8 +158,9 @@ class QubitCircuit(Circuit):
         for idx, indices_U in enumerate(self.pairs_of_indices_and_Us):
             indices, U = indices_U
             if self.trainable[idx]:
-                new_U = get_U1_unitary_gate(params[params_idx])
-                self.pairs_of_indices_and_Us[idx] = (indices, new_U)
+                # new_U = get_U1_unitary_gate(params[params_idx])
+                # self.pairs_of_indices_and_Us[idx] = (indices, new_U)
+                U.set_parameters(params[params_idx])
                 params_idx += 1
 
         assert params_idx == len(params)
@@ -181,6 +183,79 @@ class QubitCircuit(Circuit):
         '''
         state_vec = self.to_state_vector(init_state)
         return state_vec.conj() @ H @ state_vec
+
+    def get_energy_gradient(self, H, init_state=None):
+        '''
+        Given the Hamiltonian, we apply the circuit to the initial
+        state and return the gradient with respect to the energy.
+
+        Parameters
+        ----------
+            H: np.ndarray
+            the Hamiltonian
+
+        Returns
+        -------
+            energy_gradient: np.ndarray
+            the energy gradient
+        '''
+        state_vec = self.to_state_vector(init_state)
+        bottom_vec = StateVector(H @ state_vec)
+        top_vec = StateVector(state_vec)  # not yet conjugated
+
+        E = top_vec.state_vector.conj() @ bottom_vec.state_vector
+
+        list_of_envs = [None] * self.num_gates
+        for gate_idx in range(self.num_gates-1, -1, -1):
+            indices, U = self.pairs_of_indices_and_Us[gate_idx]
+
+            idx0, idx1 = indices
+            if idx0 > idx1:
+                SWAP = True
+                idx0, idx1 = idx1, idx0
+            else:
+                SWAP = False
+
+            top_theta = np.reshape(top_vec.state_vector,
+                                   [(2**idx0), 2, 2**(idx1-idx0-1), 2, 2**(self.num_qubits-(idx1+1))])
+            bottom_theta = np.reshape(bottom_vec.state_vector,
+                                      [(2**idx0), 2, 2**(idx1-idx0-1), 2, 2**(self.num_qubits-(idx1+1))])
+            # [left, i, mid, j, right]
+            env = np.tensordot(top_theta.conj(), bottom_theta, axes=([0, 2, 4], [0, 2, 4]))
+            if SWAP:
+                env = np.transpose(env, [1, 0, 3, 2])
+
+            list_of_envs[gate_idx] = env
+
+            Ud = U.T.conj().reshape([2, 2, 2, 2])
+            U = np.reshape(U, [2, 2, 2, 2])
+
+            # Contract Ud to |bottom>
+            bottom_vec.apply_gate(Ud, indices)
+            # Contract Ud to |top>
+            top_vec.apply_gate(Ud, indices)
+
+            # This is because we have the structure
+            # <top | bottom> = < new_top | Ud | bottom> = < new_top | new_bottom>
+            # So <top| = <new_top| Ud, and Ud |bottom> = |new_bottom>
+            # |top> = U |new_top>
+            # Ud |top> = |new_top>
+
+        assert np.isclose(E, top_vec.state_vector.conj() @ bottom_vec.state_vector)
+
+        # The gradient is given by the derivative of the energy with
+        # respect to the parameters
+        # dE/dp = dE/dU * dU/dp
+        grads = []
+        for gate_idx in range(self.num_gates):
+            env = list_of_envs[gate_idx].reshape([4, 4])
+            U = self.pairs_of_indices_and_Us[gate_idx][1]
+            # U(i,[j]) env_([j],i)
+            dU_mat = U.T @ env
+            U_grad = U.get_gradient(dU_mat)
+            grads.append(U_grad)
+
+        return grads
 
     def polar_opt(self, list_of_target_states, list_of_initial_states,
                   list_of_bottom_states=None,
@@ -456,97 +531,3 @@ def var_gate_exact_list_of_states(top_states, indices, bottom_states):
 
 
 
-print("We need to move this function to gate.py")
-def get_unitary_gate(h_params):
-    """
-    Compute the unitary gate U = exp(-i H) from the Hamiltonian matrix
-
-    Parameters
-    ----------
-    H_mat : np.array
-        Hamiltonian matrix
-
-    Returns
-    -------
-    U : np.array
-        Unitary gate
-    """
-    H_mat_real = np.array([[h_params[0], h_params[1], h_params[2], h_params[3]],
-                           [h_params[1], h_params[4], h_params[5], h_params[6]],
-                           [h_params[2], h_params[5], h_params[7], h_params[8]],
-                           [h_params[3], h_params[6], h_params[8], h_params[9]]])
-    H_mat_imag = np.array([[0, 1j*h_params[10], 1j*h_params[11], 1j*h_params[12]],
-                           [-1j*h_params[10], 0, 1j*h_params[13], 1j*h_params[14]],
-                           [-1j*h_params[11], -1j*h_params[13], 0, 1j*h_params[15]],
-                           [-1j*h_params[12], -1j*h_params[14], -1j*h_params[15], 0]])
-    H_mat = H_mat_real + H_mat_imag
-    return scipy.linalg.expm(-1j * H_mat)
-
-def get_unitary_params(unitary):
-    """
-    Compute the vector of parameters from the unitary U.
-    We first find out the Hermitian matrix H_mat
-    defining the unitary U = exp(-i H).
-    We want to map the Hermitian matrix to a vector of real-valued parameters.
-
-    Parameters
-    ----------
-    unitary : np.array
-        an unitary matrix
-
-    Returns
-    -------
-    params : np.array
-        Vector of parameters
-    """
-    H_mat = scipy.linalg.logm(unitary) / (-1.j)
-    # concatenate the real and imaginary parts of the upper triangular part of the matrix
-    return np.concatenate([H_mat[np.triu_indices(4, k=0)].real,
-                           H_mat[np.triu_indices(4, k=1)].imag])
-
-
-def get_U1_unitary_gate(h_params):
-    """
-    Compute the unitary gate U = exp(-i H) from the Hamiltonian matrix
-
-    Parameters
-    ----------
-    H_mat : np.array
-        Hamiltonian matrix
-
-    Returns
-    -------
-    U : np.array
-        Unitary gate
-    """
-    H_mat_real = np.array([[h_params[0], 0, 0, 0],
-                           [0, h_params[1], h_params[2], 0],
-                           [0, h_params[2], h_params[3], 0],
-                           [0, 0, 0, h_params[4]]])
-    H_mat_imag = np.array([[0, 0, 0, 0],
-                           [0, 0, 1j*h_params[5], 0],
-                           [0, -1j*h_params[5], 0, 0],
-                           [0, 0, 0, 0]])
-    H_mat = H_mat_real + H_mat_imag
-    return scipy.linalg.expm(-1j * H_mat)
-
-def get_U1_unitary_params(unitary):
-    """
-    Compute the vector of parameters from the unitary U.
-    We first find out the Hermitian matrix H_mat
-    defining the unitary U = exp(-i H).
-    We want to map the Hermitian matrix to a vector of real-valued parameters.
-
-    Parameters
-    ----------
-    unitary : np.array
-        an unitary matrix
-
-    Returns
-    -------
-    params : np.array
-        Vector of parameters
-    """
-    H_mat = scipy.linalg.logm(unitary) / (-1.j)
-    return np.array([H_mat[0, 0].real, H_mat[1, 1].real, H_mat[1, 2].real,
-                     H_mat[2, 2].real, H_mat[3, 3].real, H_mat[1, 2].imag])

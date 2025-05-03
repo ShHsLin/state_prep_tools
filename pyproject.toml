@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+# state preparation tools
+[project]
+name = "StatePrep"
+version = "0.0.1"
+description = "Toolkit for developing classical and quantum algorithms with quantum circuit to preparae target states."
+authors = [
+	{name = "StatePrep Developer Team"},
+]
+readme = "README.md"
+keywords = ["quantum circuits", "quantum simulation"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.7"
+dependencies = [
+  "numpy",
+  "scipy",
+  "scikit-learn",
+  # "qiskit>=1.0.0",
+  # "pennylane",
+  # "pennylane-qiskit",
+  "jax[cpu]",
+  # "physics-tenpy",
+]
+
+[tool.setuptools.packages.find]
+include = ["stateprep*"]

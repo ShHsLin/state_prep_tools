@@ -65,8 +65,8 @@ def get_random_u1_2q_gate(using_complex=True, scale=1e-4):
     two_qubit_unitary[1:3, 1:3] = Q
 
     if using_complex:
-        scale = np.random.rand(1) * np.pi * 2
-        phase = np.exp(1j * scale)
+        theta = np.random.rand(1) * np.pi * 2 * scale
+        phase = np.exp(1j * theta)
         two_qubit_unitary[3, 3] = phase.item() 
     else:
         two_qubit_unitary[3, 3] = 1.

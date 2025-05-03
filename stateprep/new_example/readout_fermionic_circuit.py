@@ -4,7 +4,9 @@ import numpy as np
 import pickle
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
 
-from common_setup import *
+sys.path.append("..")
+from utils.common_setup import *
+import circuit
 
 debug = False
 
@@ -23,7 +25,12 @@ if __name__ == "__main__":
     filename = sys.argv[1]
 
     print("================  Id | XX+YY | XY-YX |  ZZ  |  Z1  |  Z2  ==============")
-    pairs_of_indices_and_Us = pickle.load(open(filename, 'rb'))
+    data = pickle.load(open(filename, 'rb'))
+    if type(data) == circuit.QubitCircuit:
+        pairs_of_indices_and_Us = data.pairs_of_indices_and_Us
+    else:
+        pairs_of_indices_and_Us = data
+
     for idx in range(len(pairs_of_indices_and_Us)):
         U = pairs_of_indices_and_Us[idx][1]
 
@@ -51,7 +58,7 @@ if __name__ == "__main__":
             print("--- fSWAP ----")
             continue
         else:
-            print("coefficients: ", coefficients, "between:", site_idx_to_str[indices[0]], "and", site_idx_to_str[indices[1]])
+            print("coefficients: ", coefficients, ) # "between:", site_idx_to_str[indices[0]], "and", site_idx_to_str[indices[1]])
 
         list_of_operators = np.array([np.eye(4), hopping, current, ZZ, Z1, Z2])
         H_reconstructed = np.tensordot(coefficients, list_of_operators, [[0], [0]])
