@@ -2,6 +2,7 @@ import numpy as np
 import scipy
 import stateprep.utils.misc as misc
 from stateprep.exact_sim import StateVector
+from stateprep.gate import U1UnitaryGate
 
 # Base class for circuits
 class Circuit():
@@ -42,13 +43,13 @@ class Circuit():
 # Fermionic circuit
 class FermionicCircuit(Circuit):
     def __init__(self, pairs_of_indices_and_Us, trainable=None):
-        super().__init__(pairs_of_indices_and_Us, trainable) 
+        super().__init__(pairs_of_indices_and_Us, trainable)
         self.fSWAP = np.array([[1, 0, 0, 0],
                                [0, 0, 1, 0],
                                [0, 1, 0, 0],
                                [0, 0, 0, -1]],).reshape([2, 2, 2, 2])
 
-    def export_to_QubitCircuit(self):
+    def export_QubitCircuit(self):
         '''
         Decorate the fermionic gates with fermionic swap gates.
         The resulting circuit is a qubit circuit.
@@ -85,6 +86,24 @@ class FermionicCircuit(Circuit):
         qubit_circuit = QubitCircuit(qubit_cirucit_pairs_of_indices_and_Us,
                                      qubit_circuit_trainable)
         return qubit_circuit
+
+    def print_fermionic_params(self):
+        '''
+        Print the parameters of the fermionic circuit.
+        '''
+
+        print("=================     Id   | XX+YY  | XY-YX |  ZZ  |  Z1  |  Z2  ==============")
+
+        for idx, indices_U in enumerate(self.pairs_of_indices_and_Us):
+            indices, U = indices_U
+
+            if self.trainable[idx]:
+                print(f"Trainable gate[{idx}]: {U.decompose_fermionic_gate()} between {indices[0]} and {indices[1]}")
+            else:
+                print(f"Fixed gate {idx}: {indices} {U.decopmose_fermionic_gate()}")
+
+        print("=================     Id   |  hop   |  cur  | n1n2 |  n1  |  n2  ==============")
+
 
 
 # Quantum circuit that acts on qubits
@@ -135,9 +154,8 @@ class QubitCircuit(Circuit):
         for idx, indices_U in enumerate(self.pairs_of_indices_and_Us):
             indices, U = indices_U
             if self.trainable[idx]:
-                # params.append(get_U1_unitary_params(U))
                 params.append(U.get_parameters())
-                
+
         return params
 
     def set_params(self, params):
@@ -150,21 +168,106 @@ class QubitCircuit(Circuit):
             the parameters of the circuit
         '''
         if params.ndim == 1:
-            params = params.reshape(len(self.trainable), -1)
+            params = params.reshape(self.trainable.count(True), -1)
             assert params.shape[1] in [6, 16]
 
-        assert len(params) == len(self.trainable)
+        assert len(params) == self.trainable.count(True)
         params_idx = 0
         for idx, indices_U in enumerate(self.pairs_of_indices_and_Us):
             indices, U = indices_U
             if self.trainable[idx]:
-                # new_U = get_U1_unitary_gate(params[params_idx])
-                # self.pairs_of_indices_and_Us[idx] = (indices, new_U)
                 U.set_parameters(params[params_idx])
                 params_idx += 1
 
         assert params_idx == len(params)
         return
+
+    def export_FermionicCircuit(self):
+        '''
+        Given the qubit circuit implementing an underlying fermionic
+        circuit with fSWAP gates, we now remove the fSWAP gates and
+        return the fermionic circuit.
+
+        Parameters
+        ----------
+            None
+
+        Returns
+        -------
+            FermionicCircuit
+            the fermionic circuit
+        '''
+        new_pairs_of_indices_and_Us = []
+        new_trainable = []
+        idx = 0
+
+        fSWAP = np.array([[1, 0, 0, 0],
+                          [0, 0, 1, 0],
+                          [0, 1, 0, 0],
+                          [0, 0, 0, -1]],).reshape([2, 2, 2, 2])
+
+        while idx < self.num_gates:
+            indices, U = self.pairs_of_indices_and_Us[idx]
+            is_trainable = self.trainable[idx]
+
+            if not is_trainable and np.allclose(U, fSWAP):
+                # Possibly beginning of fSWAP sequence
+                start = indices[0]
+                # forward fSWAPs
+                forward = []
+                while idx < self.num_gates and not self.trainable[idx] and \
+                      np.allclose(self.pairs_of_indices_and_Us[idx][1], fSWAP):
+                    forward.append(self.pairs_of_indices_and_Us[idx][0])
+                    idx += 1
+
+
+                # Unitary application
+                if idx >= self.num_gates or (not self.trainable[idx]):
+                    raise ValueError("Malformed fSWAP sequence: expected trainable unitary after forward swaps")
+
+                unitary_indices, U_actual = self.pairs_of_indices_and_Us[idx]
+                if type(U_actual) == np.ndarray:
+                    U_actual = U1UnitaryGate(U_actual.reshape([4, 4]))
+                    # [TODO] we should actualy define a fermionic gate class
+
+                is_unitary_trainable = self.trainable[idx]
+                idx += 1
+
+                # backward fSWAPs
+                backward = []
+                while idx < self.num_gates and not self.trainable[idx] and \
+                      np.allclose(self.pairs_of_indices_and_Us[idx][1], fSWAP):
+                    backward.append(self.pairs_of_indices_and_Us[idx][0])
+                    idx += 1
+                    if len(backward) == len(forward):
+                        break
+
+                # Check that forward and backward swaps are mirror images
+                if forward != list(reversed(backward)):
+                    raise ValueError("Inconsistent fSWAP pattern: forward and backward swaps don't match")
+
+                # Reconstruct fermionic pair
+                left = start
+                right = unitary_indices[1]
+                # print("adding gates :", idx, "unitary indices = ", (left, right))
+                new_pairs_of_indices_and_Us.append(((left, right), U_actual))
+                new_trainable.append(is_unitary_trainable)
+            else:
+                # print("adding gates :", idx, "unitary indices = ", indices)
+                # No fSWAP: must be adjacent gate
+                if indices[1] - indices[0] != 1:
+                    raise ValueError(f"Unexpected gate without fSWAP at non-adjacent qubits: {indices}")
+
+                if type(U) == np.ndarray:
+                    U = U1UnitaryGate(U.reshape([4, 4]))
+                    # [TODO] we should actualy define a fermionic gate class
+
+                new_pairs_of_indices_and_Us.append((indices, U))
+                new_trainable.append(is_trainable)
+                idx += 1
+
+        new_circ = FermionicCircuit(new_pairs_of_indices_and_Us, new_trainable)
+        return new_circ
 
     def get_energy(self, H, init_state=None):
         '''
@@ -179,7 +282,7 @@ class QubitCircuit(Circuit):
         Returns
         -------
             energy: np.float
-            
+
         '''
         state_vec = self.to_state_vector(init_state)
         return state_vec.conj() @ H @ state_vec
@@ -313,9 +416,9 @@ class QubitCircuit(Circuit):
                 for state_idx in range(len(list_of_bottom_states)):
                     list_of_bottom_states[state_idx].apply_gate(gate, indices)
         else:
-            print('The bottom states are given.')
+            # print('The bottom states are given.')
             assert len(list_of_bottom_states) == num_states
-            
+
 
         # Preparing the top states
         list_of_top_states = [StateVector(target_state) for target_state in list_of_target_states]
@@ -360,7 +463,7 @@ class QubitCircuit(Circuit):
             new_gate_conj = new_gate_conj.reshape([2, 2, 2, 2])
             for state_idx in range(num_states):
                 list_of_top_states[state_idx].apply_gate(new_gate_conj, remove_indices)
-                
+
         cost = get_cost(num_states, list_of_top_states, list_of_bottom_states)
         if verbose:
             print('Sweep down to the bottom. The intermediate error:', cost)
@@ -521,9 +624,25 @@ def var_gate_exact_list_of_states(top_states, indices, bottom_states):
         # [ ..., upper_p, ...], [ ..., lower_p, ...] -> [upper_p, lower_p]
         sum_of_Ms = sum_of_Ms + M
 
-    U, _, Vd = misc.svd(sum_of_Ms, full_matrices=False)
-    new_gate = (U @ Vd).conj()
-    new_gate = new_gate.reshape([2, 2, 2, 2])
+
+    U1 = False
+    if U1:
+        masked_sum_of_Ms = np.zeros([4, 4], dtype=np.complex128)
+        masked_sum_of_Ms[0, 0] = sum_of_Ms[0, 0]
+        masked_sum_of_Ms[1:3, 1:3] = sum_of_Ms[1:3, 1:3]
+        masked_sum_of_Ms[3, 3] = sum_of_Ms[3, 3]
+
+        masked_sum_of_Ms[0, 3] = sum_of_Ms[0, 3]
+        masked_sum_of_Ms[3, 0] = sum_of_Ms[3, 0]
+
+        U, _, Vd = misc.svd(masked_sum_of_Ms, full_matrices=False)
+        new_gate = (U @ Vd).conj()
+        new_gate = new_gate.reshape([2, 2, 2, 2])
+    else:
+        U, _, Vd = misc.svd(sum_of_Ms, full_matrices=False)
+        new_gate = (U @ Vd).conj()
+        new_gate = new_gate.reshape([2, 2, 2, 2])
+
     if SWAP:
         new_gate = np.transpose(new_gate, [1, 0, 3, 2])
 

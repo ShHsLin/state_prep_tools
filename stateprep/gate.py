@@ -5,6 +5,8 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax.scipy.linalg import expm as jax_expm
 
+from stateprep.utils.common_setup import *
+
 """
 gate.py:
 	Classes:
@@ -177,6 +179,26 @@ class U1UnitaryGate(np.ndarray):
             Gradient of the unitary gate.
         """
         return np.array(gradient_from_U1_h_params(self.params, dU_mat))
+
+    def decompose_fermionic_gate(self):
+        """
+        Decompose the U1 unitary gate into fermionic gates.
+
+        Returns
+        -------
+        list
+            List of fermionic gates.
+        """
+        H = scipy.linalg.logm(self) / -1.j
+        c0 = np.trace(H @ np.eye(4)) / 4.
+        c1 = np.trace(H @ hopping) / 2.
+        c2 = np.trace(H @ current) / 2.
+        c3 = np.trace(H @ ZZ) / 4.
+        c4 = np.trace(H @ Z1) / 4.
+        c5 = np.trace(H @ Z2) / 4.
+        coefficients = np.array([c0, c1, c2, c3, c4, c5])
+        coefficients = np.real_if_close(coefficients, 1e-10)
+        return coefficients
 
 
 def get_unitary_gate(h_params):
