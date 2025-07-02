@@ -282,7 +282,6 @@ class QubitCircuit(Circuit):
         Returns
         -------
             energy: np.float
-
         '''
         state_vec = self.to_state_vector(init_state)
         return state_vec.conj() @ H @ state_vec
@@ -419,7 +418,6 @@ class QubitCircuit(Circuit):
             # print('The bottom states are given.')
             assert len(list_of_bottom_states) == num_states
 
-
         # Preparing the top states
         list_of_top_states = [StateVector(target_state) for target_state in list_of_target_states]
 
@@ -463,7 +461,7 @@ class QubitCircuit(Circuit):
             new_gate_conj = new_gate_conj.reshape([2, 2, 2, 2])
             for state_idx in range(num_states):
                 list_of_top_states[state_idx].apply_gate(new_gate_conj, remove_indices)
-
+                
         cost = get_cost(num_states, list_of_top_states, list_of_bottom_states)
         if verbose:
             print('Sweep down to the bottom. The intermediate error:', cost)
@@ -623,7 +621,6 @@ def var_gate_exact_list_of_states(top_states, indices, bottom_states):
         M = np.reshape(M, [4, 4])
         # [ ..., upper_p, ...], [ ..., lower_p, ...] -> [upper_p, lower_p]
         sum_of_Ms = sum_of_Ms + M
-
 
     U1 = False
     if U1:

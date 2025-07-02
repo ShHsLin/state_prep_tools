@@ -4,9 +4,8 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax.scipy.linalg import expm as jax_expm
-
-from stateprep.utils.common_setup import *
-
+from stateprep.utils.common_setup import hopping, current, ZZ, Z1, Z2
+ 
 """
 gate.py:
 	Classes:
@@ -199,6 +198,43 @@ class U1UnitaryGate(np.ndarray):
         coefficients = np.array([c0, c1, c2, c3, c4, c5])
         coefficients = np.real_if_close(coefficients, 1e-10)
         return coefficients
+
+class FreeFermionGate(UnitaryGate):
+    """
+    Free Fermion Gate class.
+    
+    This class represents a free fermion gate as described in Eq.(1) of 
+    https://arxiv.org/pdf/0804.4050
+    
+    The implementation is currently not available.
+    """
+    
+    def __new__(cls, init_U=None, init_params=None, scale=1e-3):
+        """
+        Create a new FreeFermionGate instance.
+        
+        Currently raises NotImplementedError as the implementation is not yet available.
+        
+        Parameters
+        ----------
+        init_U : np.ndarray, optional
+            Initial unitary matrix (default is None).
+        init_params : np.ndarray, optional
+            Initial parameters (default is None).
+        scale : float, optional
+            Scale factor for random initialization (default is 1e-3).
+            
+        Returns
+        -------
+        FreeFermionGate
+            A new instance of the FreeFermionGate class.
+            
+        Raises
+        ------
+        NotImplementedError
+            FreeFermionGate implementation is not yet available.
+        """
+        raise NotImplementedError("FreeFermionGate implementation is not yet available")
 
 
 def get_unitary_gate(h_params):
