@@ -28,7 +28,7 @@ class StateVector(object):
         return self.state
 
     def __repr__(self):
-        return f"StateVector({self.state})"
+        return f"StateVector({self.state_vector})"
 
     def __getitem__(self, idx):
         return self.state_vector[idx]
@@ -74,6 +74,15 @@ class StateVector(object):
         theta = np.reshape(self.state_vector, [(2**idx), gate_dim, 2**(self.L-(idx+num_sites))])
         theta = np.tensordot(gate, theta, [1, 1])  ## [ij] [..., j, ...] --> [i, ..., ...]
         self.state_vector = (np.transpose(theta, [1, 0, 2])).flatten()
+
+    def exp_val(self, operator, indices):
+        '''
+        Calculate the expectation value of an operator.
+        '''
+        ket = self.copy()
+        ket.apply_gate(operator, indices)
+        return np.dot(np.conj(self.state_vector), ket.state_vector)
+
 
 def overlap(state1, state2):
     '''

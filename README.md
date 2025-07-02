@@ -1,4 +1,9 @@
-# state_prep_tools
+# Classical tools for quantum state preparation and simulation
+
+We provide a set of classical tools for quantum state preparation and simulation.
+The emphasis and assumption are on "classical",
+in the sense that at least one of the classical representation of the simulation
+should be efficiently computable.
 
 The repository consists part of the [code](https://github.com/ShHsLin/qutepy-archive) from the TUM group on finding state prep circuits.
 It utilizes the tensor networks and exact state vector simulation with fidelity optimization
