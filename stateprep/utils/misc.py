@@ -72,3 +72,16 @@ def get_random_u1_2q_gate(using_complex=True, scale=1e-4):
         two_qubit_unitary[3, 3] = 1.
 
     return two_qubit_unitary
+
+def get_random_2q_gate(using_complex=True, scale=1e-4):
+    """
+    Generate a random 2-qubit unitary gate.
+   """
+    if using_complex:
+        M = np.random.rand(4, 4) + 1j * np.random.rand(4, 4) - 0.5 - 0.5j
+    else:
+        M = np.random.rand(4, 4) - 0.5
+
+    M = M * scale + np.eye(4)
+    Q, R = np.linalg.qr(M)
+    return Q
