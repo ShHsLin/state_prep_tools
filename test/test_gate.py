@@ -5,12 +5,13 @@ This test suite covers all classes and functions in the gate.py module:
 - UnitaryGate class
 - U1UnitaryGate class  
 - FreeFermionGate class
-- All utility functions
+- FermionicGate class
+- All utility functions (including new free fermion and fermionic functions)
 - JAX implementations
 - Parameter consistency checks
 - Edge cases
 
-Total tests: 37
+Total tests: 61
 """
 
 import pytest
@@ -18,12 +19,15 @@ import numpy as np
 import scipy.linalg
 import jax.numpy as jnp
 from stateprep.gate import (
-    UnitaryGate, U1UnitaryGate, FreeFermionGate,
+    UnitaryGate, U1UnitaryGate, FreeFermionGate, FermionicGate,
     get_unitary_gate, get_unitary_params,
     get_U1_unitary_gate, get_U1_unitary_params,
+    get_free_fermion_gate, get_free_fermion_unitary_params,
+    get_fermionic_gate, get_fermionic_unitary_params,
     jax_get_unitary_gate, jax_get_U1_unitary_gate,
     func_val_from_h_params, gradient_from_h_params,
-    func_val_from_U1_h_params, gradient_from_U1_h_params
+    func_val_from_U1_h_params, gradient_from_U1_h_params,
+    gradient_from_free_fermion_h_params, gradient_from_fermionic_h_params
 )
 
 
@@ -151,25 +155,153 @@ class TestU1UnitaryGate:
         """Test error handling for wrong unitary shape."""
         with pytest.raises(AssertionError):
             U1UnitaryGate(init_U=np.random.randn(3, 3))
+    
+    def test_decompose_fermionic_gate(self):
+        """Test decompose_fermionic_gate method."""
+        gate = U1UnitaryGate()
+        coefficients = gate.decompose_fermionic_gate()
+        assert len(coefficients) == 6
+        assert np.all(np.isfinite(coefficients))
+        assert np.all(np.isreal(coefficients))
 
 
 class TestFreeFermionGate:
     """Test cases for the FreeFermionGate class."""
     
-    def test_init_raises_not_implemented(self):
-        """Test that FreeFermionGate raises NotImplementedError."""
-        with pytest.raises(NotImplementedError, match="FreeFermionGate implementation is not yet available"):
-            FreeFermionGate()
+    def test_init_default(self):
+        """Test default initialization of FreeFermionGate."""
+        gate = FreeFermionGate()
+        assert gate.shape == (4, 4)
+        assert hasattr(gate, 'params')
+        assert len(gate.params) == 6
+        # Check unitarity
+        assert np.allclose(gate @ gate.conj().T, np.eye(4))
     
-    def test_init_with_params_raises_not_implemented(self):
-        """Test that FreeFermionGate with params raises NotImplementedError."""
-        with pytest.raises(NotImplementedError, match="FreeFermionGate implementation is not yet available"):
-            FreeFermionGate(init_params=np.random.randn(16))
+    def test_init_with_params(self):
+        """Test initialization with specific parameters."""
+        params = np.random.randn(6) * 0.1
+        gate = FreeFermionGate(init_params=params)
+        assert gate.shape == (4, 4)
+        assert np.allclose(gate.params, params)
+        assert np.allclose(gate @ gate.conj().T, np.eye(4))
     
-    def test_init_with_unitary_raises_not_implemented(self):
-        """Test that FreeFermionGate with unitary raises NotImplementedError."""
-        with pytest.raises(NotImplementedError, match="FreeFermionGate implementation is not yet available"):
-            FreeFermionGate(init_U=np.eye(4))
+    def test_init_with_unitary(self):
+        """Test initialization with unitary matrix."""
+        # Create a proper free fermion unitary matrix using the utility function
+        params = np.random.randn(6) * 0.1
+        U = get_free_fermion_gate(params)
+        gate = FreeFermionGate(init_U=U)
+        assert gate.shape == (4, 4)
+        assert hasattr(gate, 'params')
+        assert len(gate.params) == 6
+    
+    def test_get_parameters(self):
+        """Test parameter retrieval."""
+        params = np.random.randn(6) * 0.1
+        gate = FreeFermionGate(init_params=params)
+        retrieved_params = gate.get_parameters()
+        assert np.allclose(retrieved_params, params)
+    
+    def test_set_parameters(self):
+        """Test parameter setting."""
+        gate = FreeFermionGate()
+        new_params = np.random.randn(6) * 0.1
+        gate.set_parameters(new_params)
+        assert np.allclose(gate.params, new_params)
+        assert np.allclose(gate @ gate.conj().T, np.eye(4))
+    
+    def test_get_gradient_raises_not_implemented(self):
+        """Test that gradient computation raises NotImplementedError."""
+        gate = FreeFermionGate()
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        with pytest.raises(NotImplementedError, match="Free fermion gate gradient is not implemented yet"):
+            gate.get_gradient(dU_mat)
+    
+    def test_invalid_params_length(self):
+        """Test error handling for wrong parameter length."""
+        with pytest.raises(AssertionError):
+            FreeFermionGate(init_params=np.random.randn(10))
+    
+    def test_invalid_unitary_shape(self):
+        """Test error handling for wrong unitary shape."""
+        with pytest.raises(AssertionError):
+            FreeFermionGate(init_U=np.random.randn(3, 3))
+    
+    def test_array_finalize(self):
+        """Test __array_finalize__ method."""
+        gate1 = FreeFermionGate()
+        gate2 = gate1.copy()
+        assert hasattr(gate2, 'params')
+        assert np.allclose(gate2.params, gate1.params)
+
+class TestFermionicGate:
+    """Test cases for the FermionicGate class."""
+    
+    def test_init_default(self):
+        """Test default initialization of FermionicGate."""
+        gate = FermionicGate()
+        assert gate.shape == (4, 4)
+        assert hasattr(gate, 'params')
+        assert len(gate.params) == 8
+        # Check unitarity
+        assert np.allclose(gate @ gate.conj().T, np.eye(4))
+    
+    def test_init_with_params(self):
+        """Test initialization with specific parameters."""
+        params = np.random.randn(8) * 0.1
+        gate = FermionicGate(init_params=params)
+        assert gate.shape == (4, 4)
+        assert np.allclose(gate.params, params)
+        assert np.allclose(gate @ gate.conj().T, np.eye(4))
+    
+    def test_init_with_unitary(self):
+        """Test initialization with unitary matrix."""
+        # Create a proper fermionic unitary matrix using the utility function
+        params = np.random.randn(8) * 0.1
+        U = get_fermionic_gate(params)
+        gate = FermionicGate(init_U=U)
+        assert gate.shape == (4, 4)
+        assert hasattr(gate, 'params')
+        assert len(gate.params) == 8
+    
+    def test_get_parameters(self):
+        """Test parameter retrieval."""
+        params = np.random.randn(8) * 0.1
+        gate = FermionicGate(init_params=params)
+        retrieved_params = gate.get_parameters()
+        assert np.allclose(retrieved_params, params)
+    
+    def test_set_parameters(self):
+        """Test parameter setting."""
+        gate = FermionicGate()
+        new_params = np.random.randn(8) * 0.1
+        gate.set_parameters(new_params)
+        assert np.allclose(gate.params, new_params)
+        assert np.allclose(gate @ gate.conj().T, np.eye(4))
+    
+    def test_get_gradient_raises_not_implemented(self):
+        """Test that gradient computation raises NotImplementedError."""
+        gate = FermionicGate()
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        with pytest.raises(NotImplementedError, match="Fermionic gate gradient is not implemented yet"):
+            gate.get_gradient(dU_mat)
+    
+    def test_invalid_params_length(self):
+        """Test error handling for wrong parameter length."""
+        with pytest.raises(AssertionError):
+            FermionicGate(init_params=np.random.randn(10))
+    
+    def test_invalid_unitary_shape(self):
+        """Test error handling for wrong unitary shape."""
+        with pytest.raises(AssertionError):
+            FermionicGate(init_U=np.random.randn(3, 3))
+    
+    def test_array_finalize(self):
+        """Test __array_finalize__ method."""
+        gate1 = FermionicGate()
+        gate2 = gate1.copy()
+        assert hasattr(gate2, 'params')
+        assert np.allclose(gate2.params, gate1.params)
 
 
 class TestUtilityFunctions:
@@ -254,6 +386,54 @@ class TestUtilityFunctions:
         grad = gradient_from_U1_h_params(params, dU_mat)
         assert len(grad) == 6
         assert np.all(np.isfinite(grad))
+    
+    def test_get_free_fermion_gate(self):
+        """Test get_free_fermion_gate function."""
+        params = np.random.randn(6) * 0.1
+        U = get_free_fermion_gate(params)
+        assert U.shape == (4, 4)
+        assert np.allclose(U @ U.conj().T, np.eye(4))
+    
+    def test_get_free_fermion_unitary_params(self):
+        """Test get_free_fermion_unitary_params function."""
+        params = np.random.randn(6) * 0.1
+        U = get_free_fermion_gate(params)
+        recovered_params = get_free_fermion_unitary_params(U)
+        assert len(recovered_params) == 6
+        # Check if we can recover similar unitary (up to phase)
+        U_recovered = get_free_fermion_gate(recovered_params)
+        assert np.allclose(np.abs(U), np.abs(U_recovered), atol=1e-10)
+    
+    def test_get_fermionic_gate(self):
+        """Test get_fermionic_gate function."""
+        params = np.random.randn(8) * 0.1
+        U = get_fermionic_gate(params)
+        assert U.shape == (4, 4)
+        assert np.allclose(U @ U.conj().T, np.eye(4))
+    
+    def test_get_fermionic_unitary_params(self):
+        """Test get_fermionic_unitary_params function."""
+        params = np.random.randn(8) * 0.1
+        U = get_fermionic_gate(params)
+        recovered_params = get_fermionic_unitary_params(U)
+        assert len(recovered_params) == 8
+        # Check if we can recover similar unitary (up to phase)
+        U_recovered = get_fermionic_gate(recovered_params)
+        assert np.allclose(np.abs(U), np.abs(U_recovered), atol=1e-10)
+    
+    def test_gradient_from_free_fermion_h_params_raises_not_implemented(self):
+        """Test that free fermion gradient raises NotImplementedError."""
+        params = np.random.randn(6) * 0.1
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        with pytest.raises(NotImplementedError, match="Free fermion gate gradient is not implemented yet"):
+            gradient_from_free_fermion_h_params(params, dU_mat)
+    
+    def test_gradient_from_fermionic_h_params_raises_not_implemented(self):
+        """Test that fermionic gradient raises NotImplementedError."""
+        params = np.random.randn(8) * 0.1
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        with pytest.raises(NotImplementedError, match="Fermionic gate gradient is not implemented yet"):
+            gradient_from_fermionic_h_params(params, dU_mat)
 
 
 class TestParameterConsistency:
@@ -274,6 +454,24 @@ class TestParameterConsistency:
         U = get_U1_unitary_gate(original_params)
         recovered_params = get_U1_unitary_params(U)
         U_recovered = get_U1_unitary_gate(recovered_params)
+        # Check that unitaries are equivalent (up to global phase)
+        assert np.allclose(np.abs(U), np.abs(U_recovered), atol=1e-10)
+    
+    def test_free_fermion_parameter_roundtrip(self):
+        """Test that free fermion parameter -> unitary -> parameter roundtrip works."""
+        original_params = np.random.randn(6) * 0.1
+        U = get_free_fermion_gate(original_params)
+        recovered_params = get_free_fermion_unitary_params(U)
+        U_recovered = get_free_fermion_gate(recovered_params)
+        # Check that unitaries are equivalent (up to global phase)
+        assert np.allclose(np.abs(U), np.abs(U_recovered), atol=1e-10)
+    
+    def test_fermionic_parameter_roundtrip(self):
+        """Test that fermionic parameter -> unitary -> parameter roundtrip works."""
+        original_params = np.random.randn(8) * 0.1
+        U = get_fermionic_gate(original_params)
+        recovered_params = get_fermionic_unitary_params(U)
+        U_recovered = get_fermionic_gate(recovered_params)
         # Check that unitaries are equivalent (up to global phase)
         assert np.allclose(np.abs(U), np.abs(U_recovered), atol=1e-10)
 

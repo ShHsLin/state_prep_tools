@@ -286,6 +286,10 @@ class FermionicGate(UnitaryGate):
             obj.params = init_params
         else:
             init_params = (np.random.rand(8) - 0.5) * scale
+            obj = get_fermionic_gate(init_params).view(cls)
+            obj.params = init_params
+
+        return obj
 
     def __array_finalize__(self, obj):
         if obj is None: return
