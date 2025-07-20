@@ -28,6 +28,7 @@ dependencies = [
   # "pennylane",
   # "pennylane-qiskit",
   "jax[cpu]",
+  "pickle",
   # "physics-tenpy",
 ]
 

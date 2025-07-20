@@ -1,5 +1,6 @@
 import numpy as np
 import scipy
+import pickle
 import stateprep.utils.misc as misc
 from stateprep.exact_sim import StateVector
 from stateprep.gate import U1UnitaryGate
@@ -38,6 +39,15 @@ class Circuit():
 
     def set_params(self, params):
         raise NotImplementedError('set_params is not implemented.')
+
+    def save_pairs_of_indices_and_Us(self, filename):
+        '''
+        Save the pairs of indices and unitaries to a file.
+        We cast the unitaries back to np.ndarray.
+        '''
+        with open(filename, "wb") as f:
+            pairs_of_indices_and_Us = [(idx, np.array(U)) for idx, U in self.pairs_of_indices_and_Us]
+            pickle.dump(pairs_of_indices_and_Us, f)
 
 
 # Fermionic circuit
