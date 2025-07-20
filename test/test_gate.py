@@ -22,8 +22,8 @@ from stateprep.gate import (
     get_unitary_gate, get_unitary_params,
     get_U1_unitary_gate, get_U1_unitary_params,
     jax_get_unitary_gate, jax_get_U1_unitary_gate,
-    energy_from_h_params, gradient_from_h_params,
-    energy_from_U1_h_params, gradient_from_U1_h_params
+    func_val_from_h_params, gradient_from_h_params,
+    func_val_from_U1_h_params, gradient_from_U1_h_params
 )
 
 
@@ -223,11 +223,11 @@ class TestUtilityFunctions:
         U_jax = jax_get_U1_unitary_gate(params)
         assert np.allclose(U_np, U_jax)
     
-    def test_energy_from_h_params(self):
+    def test_func_val_from_h_params(self):
         """Test energy computation from parameters."""
         params = np.random.randn(16) * 0.1
         dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
-        energy = energy_from_h_params(params, dU_mat)
+        energy = func_val_from_h_params(params, dU_mat)
         assert energy.ndim == 0  # JAX scalar
         assert np.isreal(energy)
     
@@ -239,11 +239,11 @@ class TestUtilityFunctions:
         assert len(grad) == 16
         assert np.all(np.isfinite(grad))
     
-    def test_energy_from_U1_h_params(self):
+    def test_func_val_from_U1_h_params(self):
         """Test U1 energy computation from parameters."""
         params = np.random.randn(6) * 0.1
         dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
-        energy = energy_from_U1_h_params(params, dU_mat)
+        energy = func_val_from_U1_h_params(params, dU_mat)
         assert energy.ndim == 0  # JAX scalar
         assert np.isreal(energy)
     
