@@ -4,7 +4,7 @@ import pickle
 import copy
 import stateprep.utils.misc as misc
 from stateprep.exact_sim import StateVector
-from stateprep.gate import U1UnitaryGate
+from stateprep.gate import U1UnitaryGate, UnitaryGate, FermionicGate, FreeFermionGate
 
 # Base class for circuits
 class Circuit():
@@ -246,6 +246,8 @@ class QubitCircuit(Circuit):
                 if type(U_actual) == np.ndarray:
                     U_actual = U1UnitaryGate(U_actual.reshape([4, 4]))
                     # [TODO] we should actualy define a fermionic gate class
+                    # [TODO] We should implement a function to identify the class
+                    # [TODO] We should implement test assert in the gate class to avoid wrongly assign class
 
                 is_unitary_trainable = self.trainable[idx]
                 idx += 1
@@ -278,6 +280,8 @@ class QubitCircuit(Circuit):
                 if type(U) == np.ndarray:
                     U = U1UnitaryGate(U.reshape([4, 4]))
                     # [TODO] we should actualy define a fermionic gate class
+                    # [TODO] We should implement a function to identify the class
+                    # [TODO] We should implement test assert in the gate class to avoid wrongly assign class
 
                 new_pairs_of_indices_and_Us.append((indices, U))
                 new_trainable.append(is_trainable)
@@ -376,3 +380,179 @@ class QubitCircuit(Circuit):
 
         return grads
 
+def transform_to_nearest_neighbor_qubit_circuit(qubit_circuit):
+    '''
+    Transform a generic qubit circuit, which may have unitaries
+    acting on non-neighboring qubits, to a nearest neighbor qubit
+    circuit. This is done by applying SWAP gates to move the unitaries
+    to nearest neighbor pairs.
+
+    Parameters
+    ----------
+        qubit_circuit: QubitCircuit
+        the qubit circuit
+
+    Returns
+    -------
+        QubitCircuit
+        the nearest neighbor qubit circuit
+    '''
+    SWAP = np.array([[1, 0, 0, 0],
+                     [0, 0, 1, 0],
+                     [0, 1, 0, 0],
+                     [0, 0, 0, 1]],).reshape([2, 2, 2, 2])
+
+    if not isinstance(qubit_circuit, QubitCircuit):
+        raise TypeError("Input must be a QubitCircuit instance.")
+
+    if qubit_circuit.num_qubits < 2:
+        # No need to transform if there are less than 2 qubits
+        return qubit_circuit
+
+    # Begin with an empty list of pairs and trainable flags
+    new_pairs_of_indices_and_Us = []
+    new_trainable = []
+
+    for idx, (indices, U) in enumerate(qubit_circuit.pairs_of_indices_and_Us):
+        assert indices[0] < indices[1], "Indices must be in ascending order."
+
+        if indices[1] - indices[0] == 1:
+            # If the unitary is already nearest neighbor, keep it
+            new_pairs_of_indices_and_Us.append((indices, U))
+            new_trainable.append(qubit_circuit.trainable[idx])
+        else:
+            # We need to apply SWAP gates to move the left qubit
+            for move_idx in range(indices[0], indices[1]-1):
+                new_pairs_of_indices_and_Us.append(((move_idx, move_idx+1), SWAP))
+                new_trainable.append(False)
+
+            # Apply the unitary
+            new_pairs_of_indices_and_Us.append(((indices[1]-1, indices[1]), U))
+            new_trainable.append(qubit_circuit.trainable[idx])
+
+            # Apply the SWAP gates to move back the left qubit
+            for move_idx in range(indices[1]-1, indices[0], -1):
+                new_pairs_of_indices_and_Us.append(((move_idx-1, move_idx), SWAP))
+                new_trainable.append(False)
+
+    # Now we have a nearest neighbor qubit circuit
+    nearest_neighbor_circuit = QubitCircuit(new_pairs_of_indices_and_Us, new_trainable)
+    return nearest_neighbor_circuit
+
+def removing_SWAP_from_nearest_neighbor_qubit_circuit(qubit_circuit):
+    '''
+    Simplify a nearest neighbor qubit circuit by removing the SWAP gates
+    that are from tansforming a generic qubit circuit to a nearest neighbor
+    qubit circuit. This function is similar to the export_FermionicCircuit
+    function, but we pull out the SWAP gates here.
+
+    Parameters
+    ----------
+        qubit_circuit: QubitCircuit
+        the nearest neighbor qubit circuit
+
+    Returns
+    -------
+        QubitCircuit
+        the simplified nearest neighbor qubit circuit
+    '''
+    if not isinstance(qubit_circuit, QubitCircuit):
+        raise TypeError("Input must be a QubitCircuit instance.")
+
+    new_pairs_of_indices_and_Us = []
+    new_trainable = []
+    idx = 0
+    SWAP = np.array([[1, 0, 0, 0],
+                     [0, 0, 1, 0],
+                     [0, 1, 0, 0],
+                     [0, 0, 0, 1]],).reshape([2, 2, 2, 2])
+
+    while idx < qubit_circuit.num_gates:
+        indices, U = qubit_circuit.pairs_of_indices_and_Us[idx]
+        is_trainable = qubit_circuit.trainable[idx]
+
+        if not is_trainable and np.allclose(U, SWAP):
+            # Possibly beginning of SWAP sequence
+            start = indices[0]
+            # forward SWAPs
+            forward = []
+            while idx < qubit_circuit.num_gates and not qubit_circuit.trainable[idx] and \
+                  np.allclose(qubit_circuit.pairs_of_indices_and_Us[idx][1], SWAP):
+                forward.append(qubit_circuit.pairs_of_indices_and_Us[idx][0])
+                idx += 1
+
+            # Unitary application
+            if idx >= qubit_circuit.num_gates or (not qubit_circuit.trainable[idx]):
+                raise ValueError("Malformed SWAP sequence: expected trainable unitary after forward swaps")
+
+            unitary_indices, U_actual = qubit_circuit.pairs_of_indices_and_Us[idx]
+            if type(U_actual) == np.ndarray:
+                U_actual = UnitaryGate(U_actual.reshape([4, 4]))
+
+            is_unitary_trainable = qubit_circuit.trainable[idx]
+            idx += 1
+
+            # backward SWAPs
+            backward = []
+            while idx < qubit_circuit.num_gates and not qubit_circuit.trainable[idx] and \
+                  np.allclose(qubit_circuit.pairs_of_indices_and_Us[idx][1], SWAP):
+                backward.append(qubit_circuit.pairs_of_indices_and_Us[idx][0])
+                idx += 1
+                if len(backward) == len(forward):
+                    break
+
+            # Check that forward and backward swaps are mirror images
+            if forward != list(reversed(backward)):
+                raise ValueError("Inconsistent SWAP pattern: forward and backward swaps don't match")
+
+            # Reconstruct pair
+            left = start
+            right = unitary_indices[1]
+            new_pairs_of_indices_and_Us.append(((left, right), U_actual))
+            new_trainable.append(is_unitary_trainable)
+        else:
+            # No SWAP: must be adjacent gate
+            if indices[1] - indices[0] != 1:
+                raise ValueError(f"Unexpected gate without SWAP at non-adjacent qubits: {indices}")
+            if type(U) == np.ndarray:
+                U = UnitaryGate(U.reshape([4, 4]))
+
+            new_pairs_of_indices_and_Us.append((indices, U))
+            new_trainable.append(is_trainable)
+            idx += 1
+
+    new_circ = QubitCircuit(new_pairs_of_indices_and_Us, new_trainable)
+    return new_circ
+
+
+
+if __name__ == "__main__":
+    # Example usage
+    pairs = [((0, 5), U1UnitaryGate(np.eye(4))),
+             ((1, 2), U1UnitaryGate(np.eye(4))),
+             ((0, 2), U1UnitaryGate(np.eye(4)))]
+    circuit = QubitCircuit(pairs)
+    print("------")
+    for pair in circuit.pairs_of_indices_and_Us:
+        print(pair[0], type(pair[1]))
+
+    print("------")
+
+    print("------")
+    transformed_circuit = transform_to_nearest_neighbor_qubit_circuit(circuit)
+    for pair in transformed_circuit.pairs_of_indices_and_Us:
+        print(pair[0], type(pair[1]))
+    print("------")
+
+
+    print("------")
+    simplified_circuit = removing_SWAP_from_nearest_neighbor_qubit_circuit(transformed_circuit)
+    for pair in simplified_circuit.pairs_of_indices_and_Us:
+        print(pair[0], type(pair[1]))
+    print("------")
+
+
+    # print(circuit.to_state_vector())
+    # print(circuit.get_params())
+    # circuit.set_params(np.random.rand(len(circuit.get_params()), 6))
+    # print(circuit.to_state_vector())
