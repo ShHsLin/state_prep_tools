@@ -71,36 +71,36 @@ class FermionicCircuit(Circuit):
         Decorate the fermionic gates with fermionic swap gates.
         The resulting circuit is a qubit circuit.
         '''
-        qubit_cirucit_pairs_of_indices_and_Us = []
+        qubit_circuit_pairs_of_indices_and_Us = []
         qubit_circuit_trainable = []
 
         for idx, indices_U in enumerate(self.pairs_of_indices_and_Us):
             indices, U = indices_U
             assert indices[0] < indices[1]
             if indices[1] - indices[0] == 1:
-                qubit_cirucit_pairs_of_indices_and_Us.append(indices_U)
+                qubit_circuit_pairs_of_indices_and_Us.append(indices_U)
                 qubit_circuit_trainable.append(self.trainable[idx])
             else:
                 # We need to apply fSWAP gates
                 # Apply the fSWAP gate to move the left qubit
                 for move_idx in range(indices[0], indices[1]-1):
                     pair = ((move_idx, move_idx+1), self.fSWAP)
-                    qubit_cirucit_pairs_of_indices_and_Us.append(pair)
+                    qubit_circuit_pairs_of_indices_and_Us.append(pair)
                     qubit_circuit_trainable.append(False)
 
                 # Apply the unitary
                 pair = ((indices[1]-1, indices[1]), U)
-                qubit_cirucit_pairs_of_indices_and_Us.append(pair)
+                qubit_circuit_pairs_of_indices_and_Us.append(pair)
                 qubit_circuit_trainable.append(self.trainable[idx])
 
                 # Apply the fSWAP gate to move back the left qubit
                 for move_idx in range(indices[1]-1, indices[0], -1):
                     pair = ((move_idx-1, move_idx), self.fSWAP)
-                    qubit_cirucit_pairs_of_indices_and_Us.append(pair)
+                    qubit_circuit_pairs_of_indices_and_Us.append(pair)
                     qubit_circuit_trainable.append(False)
 
         # Now we have a qubit circuit
-        qubit_circuit = QubitCircuit(qubit_cirucit_pairs_of_indices_and_Us,
+        qubit_circuit = QubitCircuit(qubit_circuit_pairs_of_indices_and_Us,
                                      qubit_circuit_trainable)
         return qubit_circuit
 
