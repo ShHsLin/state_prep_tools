@@ -1,3 +1,0 @@
-"""
-JAX scipy stub
-"""
