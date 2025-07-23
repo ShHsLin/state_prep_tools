@@ -19,14 +19,19 @@ import numpy as np
 import scipy.linalg
 import jax.numpy as jnp
 from stateprep.gate import (
-    UnitaryGate, U1UnitaryGate, FreeFermionGate, FermionicGate,
+    UnitaryGate, U1UnitaryGate, FreeFermionGate, FermionicGate, DiagonalUnitaryGate,
     get_unitary_gate, get_unitary_params,
     get_U1_unitary_gate, get_U1_unitary_params,
     get_free_fermion_gate, get_free_fermion_unitary_params,
     get_fermionic_gate, get_fermionic_unitary_params,
-    jax_get_unitary_gate, jax_get_U1_unitary_gate,
+    get_diagonal_unitary_gate, get_diagonal_unitary_params,
+    jax_get_unitary_gate, jax_get_U1_unitary_gate, jax_get_diagonal_unitary_gate,
+    jax_get_free_fermion_gate, jax_get_fermionic_gate,
     func_val_from_h_params, gradient_from_h_params,
     func_val_from_U1_h_params, gradient_from_U1_h_params,
+    func_val_from_diagonal_h_params, gradient_from_diagonal_h_params,
+    func_val_from_free_fermion_h_params, jax_gradient_from_free_fermion_h_params,
+    func_val_from_fermionic_h_params, jax_gradient_from_fermionic_h_params,
     gradient_from_free_fermion_h_params, gradient_from_fermionic_h_params
 )
 
@@ -210,12 +215,13 @@ class TestFreeFermionGate:
         assert np.allclose(gate.params, new_params)
         assert np.allclose(gate @ gate.conj().T, np.eye(4))
     
-    def test_get_gradient_raises_not_implemented(self):
-        """Test that gradient computation raises NotImplementedError."""
+    def test_get_gradient(self):
+        """Test gradient computation."""
         gate = FreeFermionGate()
         dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
-        with pytest.raises(NotImplementedError, match="Free fermion gate gradient is not implemented yet"):
-            gate.get_gradient(dU_mat)
+        grad = gate.get_gradient(dU_mat)
+        assert len(grad) == 6
+        assert np.all(np.isfinite(grad))
     
     def test_invalid_params_length(self):
         """Test error handling for wrong parameter length."""
@@ -279,12 +285,13 @@ class TestFermionicGate:
         assert np.allclose(gate.params, new_params)
         assert np.allclose(gate @ gate.conj().T, np.eye(4))
     
-    def test_get_gradient_raises_not_implemented(self):
-        """Test that gradient computation raises NotImplementedError."""
+    def test_get_gradient(self):
+        """Test gradient computation."""
         gate = FermionicGate()
         dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
-        with pytest.raises(NotImplementedError, match="Fermionic gate gradient is not implemented yet"):
-            gate.get_gradient(dU_mat)
+        grad = gate.get_gradient(dU_mat)
+        assert len(grad) == 8
+        assert np.all(np.isfinite(grad))
     
     def test_invalid_params_length(self):
         """Test error handling for wrong parameter length."""
@@ -299,6 +306,83 @@ class TestFermionicGate:
     def test_array_finalize(self):
         """Test __array_finalize__ method."""
         gate1 = FermionicGate()
+        gate2 = gate1.copy()
+        assert hasattr(gate2, 'params')
+        assert np.allclose(gate2.params, gate1.params)
+
+
+class TestDiagonalUnitaryGate:
+    """Test cases for the DiagonalUnitaryGate class."""
+    
+    def test_init_default(self):
+        """Test default initialization of DiagonalUnitaryGate."""
+        gate = DiagonalUnitaryGate()
+        assert gate.shape == (4, 4)
+        assert hasattr(gate, 'params')
+        assert len(gate.params) == 4
+        # Check unitarity
+        assert np.allclose(gate @ gate.conj().T, np.eye(4))
+        # Check that it's diagonal
+        assert np.allclose(gate - np.diag(np.diag(gate)), 0)
+    
+    def test_init_with_params(self):
+        """Test initialization with specific parameters."""
+        params = np.random.randn(4) * 0.1
+        gate = DiagonalUnitaryGate(init_params=params)
+        assert gate.shape == (4, 4)
+        assert np.allclose(gate.params, params)
+        assert np.allclose(gate @ gate.conj().T, np.eye(4))
+        # Check that it's diagonal
+        assert np.allclose(gate - np.diag(np.diag(gate)), 0)
+    
+    def test_init_with_unitary(self):
+        """Test initialization with diagonal unitary matrix."""
+        # Create a proper diagonal unitary matrix
+        params = np.random.randn(4) * 0.1
+        U = get_diagonal_unitary_gate(params)
+        gate = DiagonalUnitaryGate(init_U=U)
+        assert gate.shape == (4, 4)
+        assert hasattr(gate, 'params')
+        assert len(gate.params) == 4
+    
+    def test_get_parameters(self):
+        """Test parameter retrieval."""
+        params = np.random.randn(4) * 0.1
+        gate = DiagonalUnitaryGate(init_params=params)
+        retrieved_params = gate.get_parameters()
+        assert np.allclose(retrieved_params, params)
+    
+    def test_set_parameters(self):
+        """Test parameter setting."""
+        gate = DiagonalUnitaryGate()
+        new_params = np.random.randn(4) * 0.1
+        gate.set_parameters(new_params)
+        assert np.allclose(gate.params, new_params)
+        assert np.allclose(gate @ gate.conj().T, np.eye(4))
+        # Check that it's diagonal
+        assert np.allclose(gate - np.diag(np.diag(gate)), 0)
+    
+    def test_get_gradient(self):
+        """Test gradient computation."""
+        gate = DiagonalUnitaryGate()
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        grad = gate.get_gradient(dU_mat)
+        assert len(grad) == 4
+        assert np.all(np.isfinite(grad))
+    
+    def test_invalid_params_length(self):
+        """Test error handling for wrong parameter length."""
+        with pytest.raises(AssertionError):
+            DiagonalUnitaryGate(init_params=np.random.randn(10))
+    
+    def test_invalid_unitary_shape(self):
+        """Test error handling for wrong unitary shape."""
+        with pytest.raises(AssertionError):
+            DiagonalUnitaryGate(init_U=np.random.randn(3, 3))
+    
+    def test_array_finalize(self):
+        """Test __array_finalize__ method."""
+        gate1 = DiagonalUnitaryGate()
         gate2 = gate1.copy()
         assert hasattr(gate2, 'params')
         assert np.allclose(gate2.params, gate1.params)
@@ -421,21 +505,94 @@ class TestUtilityFunctions:
         U_recovered = get_fermionic_gate(recovered_params)
         assert np.allclose(np.abs(U), np.abs(U_recovered), atol=1e-10)
     
-    def test_gradient_from_free_fermion_h_params_raises_not_implemented(self):
-        """Test that free fermion gradient raises NotImplementedError."""
+    def test_jax_get_free_fermion_gate(self):
+        """Test JAX implementation of get_free_fermion_gate."""
+        params = np.random.randn(6) * 0.1
+        U_np = get_free_fermion_gate(params)
+        U_jax = jax_get_free_fermion_gate(params)
+        assert np.allclose(U_np, U_jax)
+    
+    def test_func_val_from_free_fermion_h_params(self):
+        """Test free fermion energy computation from parameters."""
         params = np.random.randn(6) * 0.1
         dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
-        with pytest.raises(NotImplementedError, match="Free fermion gate gradient is not implemented yet"):
-            gradient_from_free_fermion_h_params(params, dU_mat)
+        energy = func_val_from_free_fermion_h_params(params, dU_mat)
+        assert energy.ndim == 0  # JAX scalar
+        assert np.isreal(energy)
     
-    def test_gradient_from_fermionic_h_params_raises_not_implemented(self):
-        """Test that fermionic gradient raises NotImplementedError."""
+    def test_gradient_from_free_fermion_h_params(self):
+        """Test free fermion gradient computation from parameters."""
+        params = np.random.randn(6) * 0.1
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        grad = gradient_from_free_fermion_h_params(params, dU_mat)
+        assert len(grad) == 6
+        assert np.all(np.isfinite(grad))
+    
+    def test_jax_get_fermionic_gate(self):
+        """Test JAX implementation of get_fermionic_gate."""
+        params = np.random.randn(8) * 0.1
+        U_np = get_fermionic_gate(params)
+        U_jax = jax_get_fermionic_gate(params)
+        assert np.allclose(U_np, U_jax)
+    
+    def test_func_val_from_fermionic_h_params(self):
+        """Test fermionic energy computation from parameters."""
         params = np.random.randn(8) * 0.1
         dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
-        with pytest.raises(NotImplementedError, match="Fermionic gate gradient is not implemented yet"):
-            gradient_from_fermionic_h_params(params, dU_mat)
-
-
+        energy = func_val_from_fermionic_h_params(params, dU_mat)
+        assert energy.ndim == 0  # JAX scalar
+        assert np.isreal(energy)
+    
+    def test_gradient_from_fermionic_h_params(self):
+        """Test fermionic gradient computation from parameters."""
+        params = np.random.randn(8) * 0.1
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        grad = gradient_from_fermionic_h_params(params, dU_mat)
+        assert len(grad) == 8
+        assert np.all(np.isfinite(grad))
+    
+    def test_get_diagonal_unitary_gate(self):
+        """Test get_diagonal_unitary_gate function."""
+        params = np.random.randn(4) * 0.1
+        U = get_diagonal_unitary_gate(params)
+        assert U.shape == (4, 4)
+        assert np.allclose(U @ U.conj().T, np.eye(4))
+        # Check that it's diagonal
+        assert np.allclose(U - np.diag(np.diag(U)), 0)
+    
+    def test_get_diagonal_unitary_params(self):
+        """Test get_diagonal_unitary_params function."""
+        params = np.random.randn(4) * 0.1
+        U = get_diagonal_unitary_gate(params)
+        recovered_params = get_diagonal_unitary_params(U)
+        assert len(recovered_params) == 4
+        # Check if we can recover similar unitary (up to phase)
+        U_recovered = get_diagonal_unitary_gate(recovered_params)
+        assert np.allclose(np.abs(U), np.abs(U_recovered), atol=1e-10)
+    
+    def test_jax_get_diagonal_unitary_gate(self):
+        """Test JAX implementation of get_diagonal_unitary_gate."""
+        params = np.random.randn(4) * 0.1
+        U_np = get_diagonal_unitary_gate(params)
+        U_jax = jax_get_diagonal_unitary_gate(params)
+        assert np.allclose(U_np, U_jax)
+    
+    def test_func_val_from_diagonal_h_params(self):
+        """Test diagonal energy computation from parameters."""
+        params = np.random.randn(4) * 0.1
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        energy = func_val_from_diagonal_h_params(params, dU_mat)
+        assert energy.ndim == 0  # JAX scalar
+        assert np.isreal(energy)
+    
+    def test_gradient_from_diagonal_h_params(self):
+        """Test diagonal gradient computation from parameters."""
+        params = np.random.randn(4) * 0.1
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        grad = gradient_from_diagonal_h_params(params, dU_mat)
+        assert len(grad) == 4
+        assert np.all(np.isfinite(grad))
+    
 class TestParameterConsistency:
     """Test parameter consistency across conversions."""
     
@@ -474,6 +631,7 @@ class TestParameterConsistency:
         U_recovered = get_fermionic_gate(recovered_params)
         # Check that unitaries are equivalent (up to global phase)
         assert np.allclose(np.abs(U), np.abs(U_recovered), atol=1e-10)
+    
 
 
 class TestJAXNumpyEquivalence:
@@ -486,11 +644,18 @@ class TestJAXNumpyEquivalence:
         U_jax = np.array(jax_get_unitary_gate(params))
         assert np.allclose(U_np, U_jax)
     
-    def test_jax_numpy_U1_equivalence(self):
-        """Test JAX and NumPy U1 implementations give same results."""
+    def test_jax_numpy_free_fermion_equivalence(self):
+        """Test JAX and NumPy free fermion implementations give same results."""
         params = np.random.randn(6) * 0.1
-        U_np = get_U1_unitary_gate(params)
-        U_jax = np.array(jax_get_U1_unitary_gate(params))
+        U_np = get_free_fermion_gate(params)
+        U_jax = np.array(jax_get_free_fermion_gate(params))
+        assert np.allclose(U_np, U_jax)
+    
+    def test_jax_numpy_fermionic_equivalence(self):
+        """Test JAX and NumPy fermionic implementations give same results."""
+        params = np.random.randn(8) * 0.1
+        U_np = get_fermionic_gate(params)
+        U_jax = np.array(jax_get_fermionic_gate(params))
         assert np.allclose(U_np, U_jax)
 
 
@@ -506,6 +671,10 @@ class TestEdgeCases:
         zero_params_U1 = np.zeros(6)
         U_U1 = get_U1_unitary_gate(zero_params_U1)
         assert np.allclose(U_U1, np.eye(4))
+        
+        zero_params_diagonal = np.zeros(4)
+        U_diag = get_diagonal_unitary_gate(zero_params_diagonal)
+        assert np.allclose(U_diag, np.eye(4))
     
     def test_large_parameters(self):
         """Test behavior with large parameters."""
@@ -516,6 +685,10 @@ class TestEdgeCases:
         large_params_U1 = np.random.randn(6) * 10
         U_U1 = get_U1_unitary_gate(large_params_U1)
         assert np.allclose(U_U1 @ U_U1.conj().T, np.eye(4))
+        
+        large_params_diagonal = np.random.randn(4) * 10
+        U_diag = get_diagonal_unitary_gate(large_params_diagonal)
+        assert np.allclose(U_diag @ U_diag.conj().T, np.eye(4))
     
     def test_complex_dU_matrix(self):
         """Test gradient computation with complex dU matrix."""
@@ -529,6 +702,163 @@ class TestEdgeCases:
         grad_U1 = gradient_from_U1_h_params(params_U1, dU_complex)
         assert len(grad_U1) == 6
         assert np.all(np.isfinite(grad_U1))
+        
+        params_diagonal = np.random.randn(4) * 0.1
+        grad_diagonal = gradient_from_diagonal_h_params(params_diagonal, dU_complex)
+        assert len(grad_diagonal) == 4
+        assert np.all(np.isfinite(grad_diagonal))
+
+
+class TestFiniteDifferenceGradients:
+    """Test analytical gradients against finite difference approximations."""
+    
+    def finite_difference_gradient(self, func, params, eps=1e-6):
+        """Compute finite difference gradient of a function."""
+        grad = np.zeros_like(params)
+        for i in range(len(params)):
+            params_plus = params.copy()
+            params_minus = params.copy()
+            params_plus[i] += eps
+            params_minus[i] -= eps
+            grad[i] = (func(params_plus) - func(params_minus)) / (2 * eps)
+        return grad
+    
+    def test_unitary_gradient_finite_difference(self):
+        """Test UnitaryGate gradient against finite difference."""
+        params = np.random.randn(16) * 0.1
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        
+        # Analytical gradient
+        analytical_grad = gradient_from_h_params(params, dU_mat)
+        
+        # Finite difference gradient
+        def func(p):
+            return func_val_from_h_params(p, dU_mat)
+        
+        numerical_grad = self.finite_difference_gradient(func, params)
+        
+        # Compare (allowing for some numerical error)
+        assert np.allclose(analytical_grad, numerical_grad, rtol=1e-4, atol=1e-6)
+    
+    def test_U1_gradient_finite_difference(self):
+        """Test U1UnitaryGate gradient against finite difference."""
+        params = np.random.randn(6) * 0.1
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        
+        # Analytical gradient
+        analytical_grad = gradient_from_U1_h_params(params, dU_mat)
+        
+        # Finite difference gradient
+        def func(p):
+            return func_val_from_U1_h_params(p, dU_mat)
+        
+        numerical_grad = self.finite_difference_gradient(func, params)
+        
+        # Compare (allowing for some numerical error)
+        assert np.allclose(analytical_grad, numerical_grad, rtol=1e-4, atol=1e-6)
+    
+    def test_free_fermion_gradient_finite_difference(self):
+        """Test FreeFermionGate gradient against finite difference."""
+        params = np.random.randn(6) * 0.1
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        
+        # Analytical gradient
+        analytical_grad = gradient_from_free_fermion_h_params(params, dU_mat)
+        
+        # Finite difference gradient
+        def func(p):
+            return func_val_from_free_fermion_h_params(p, dU_mat)
+        
+        numerical_grad = self.finite_difference_gradient(func, params)
+        
+        # Compare (allowing for some numerical error)
+        assert np.allclose(analytical_grad, numerical_grad, rtol=1e-4, atol=1e-6)
+    
+    def test_fermionic_gradient_finite_difference(self):
+        """Test FermionicGate gradient against finite difference."""
+        params = np.random.randn(8) * 0.1
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        
+        # Analytical gradient
+        analytical_grad = gradient_from_fermionic_h_params(params, dU_mat)
+        
+        # Finite difference gradient
+        def func(p):
+            return func_val_from_fermionic_h_params(p, dU_mat)
+        
+        numerical_grad = self.finite_difference_gradient(func, params)
+        
+        # Compare (allowing for some numerical error)
+        assert np.allclose(analytical_grad, numerical_grad, rtol=1e-4, atol=1e-6)
+    
+    def test_gate_class_gradient_finite_difference(self):
+        """Test gradient computation in gate classes against finite difference."""
+        # Test UnitaryGate class
+        gate = UnitaryGate()
+        dU_mat = np.random.randn(4, 4) + 1j * np.random.randn(4, 4)
+        
+        analytical_grad = gate.get_gradient(dU_mat)
+        
+        def func(p):
+            test_gate = UnitaryGate(init_params=p)
+            U = test_gate
+            Ud = U.T.conj()
+            return np.tensordot(dU_mat, Ud, axes=2).real
+        
+        numerical_grad = self.finite_difference_gradient(func, gate.params)
+        assert np.allclose(analytical_grad, numerical_grad, rtol=1e-4, atol=1e-6)
+        
+        # Test U1UnitaryGate class
+        gate_u1 = U1UnitaryGate()
+        analytical_grad_u1 = gate_u1.get_gradient(dU_mat)
+        
+        def func_u1(p):
+            test_gate = U1UnitaryGate(init_params=p)
+            U = test_gate
+            Ud = U.T.conj()
+            return np.tensordot(dU_mat, Ud, axes=2).real
+        
+        numerical_grad_u1 = self.finite_difference_gradient(func_u1, gate_u1.params)
+        assert np.allclose(analytical_grad_u1, numerical_grad_u1, rtol=1e-4, atol=1e-6)
+        
+        # Test DiagonalUnitaryGate class
+        gate_diag = DiagonalUnitaryGate()
+        analytical_grad_diag = gate_diag.get_gradient(dU_mat)
+        
+        def func_diag(p):
+            test_gate = DiagonalUnitaryGate(init_params=p)
+            U = test_gate
+            Ud = U.T.conj()
+            return np.tensordot(dU_mat, Ud, axes=2).real
+        
+        numerical_grad_diag = self.finite_difference_gradient(func_diag, gate_diag.params)
+        assert np.allclose(analytical_grad_diag, numerical_grad_diag, rtol=1e-4, atol=1e-6)
+        
+        # Test FreeFermionGate class
+        gate_ff = FreeFermionGate()
+        analytical_grad_ff = gate_ff.get_gradient(dU_mat)
+        
+        def func_ff(p):
+            test_gate = FreeFermionGate(init_params=p)
+            U = test_gate
+            Ud = U.T.conj()
+            return np.tensordot(dU_mat, Ud, axes=2).real
+        
+        numerical_grad_ff = self.finite_difference_gradient(func_ff, gate_ff.params)
+        assert np.allclose(analytical_grad_ff, numerical_grad_ff, rtol=1e-4, atol=1e-6)
+        
+        # Test FermionicGate class
+        gate_f = FermionicGate()
+        analytical_grad_f = gate_f.get_gradient(dU_mat)
+        
+        def func_f(p):
+            test_gate = FermionicGate(init_params=p)
+            U = test_gate
+            Ud = U.T.conj()
+            return np.tensordot(dU_mat, Ud, axes=2).real
+        
+        numerical_grad_f = self.finite_difference_gradient(func_f, gate_f.params)
+        assert np.allclose(analytical_grad_f, numerical_grad_f, rtol=1e-4, atol=1e-6)
 
 
 class TestArrayFinalize:

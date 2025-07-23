@@ -7,7 +7,7 @@ from stateprep.exact_sim import StateVector
 Here we provide high-level functions for the optimization of
 qubit circuits. The functions are designed to be used with
 QubitCircuit objects.
-Currently, we provide the functions ustilizing
+Currently, we provide the functions utilizing
 state vector simulation. We plan to add also matrix-product
 states and other simulation methods.
 

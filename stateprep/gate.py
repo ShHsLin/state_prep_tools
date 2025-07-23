@@ -238,7 +238,7 @@ class FreeFermionGate(UnitaryGate):
         if obj is None: return
         self.params = getattr(obj, 'params', None)
         # ---- class specific attributes ----
-        self.num_params = 6  # Number of parameters for the U1 preserving gate
+        self.num_params = 6  # Number of parameters for the free fermion gate
         self.get_unitary_from = get_free_fermion_gate
         self.get_gradient_from = gradient_from_free_fermion_h_params
 
@@ -669,6 +669,33 @@ def gradient_from_diagonal_h_params(params, dU_mat):
     return jax.grad(func_val_from_diagonal_h_params, 0)(params, dU_mat)
 
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+@jax.jit
+def jax_get_free_fermion_gate(h_params):
+    """
+    Same as get_free_fermion_gate but using jax.numpy
+    """
+    H_mat_real = jnp.array([[h_params[0], 0, 0, h_params[1]],
+                            [0, h_params[2], h_params[3], 0],
+                            [0, h_params[3], -h_params[2], 0],
+                            [h_params[1], 0, 0, -h_params[0]]])
+    H_mat_imag = jnp.array([[0, 0, 0, 1j*h_params[4]],
+                            [0, 0, 1j*h_params[5], 0],
+                            [0, -1j*h_params[5], 0, 0],
+                            [-1j*h_params[4], 0, 0, 0]])
+    H_mat = H_mat_real + H_mat_imag
+    return jax_expm(-1j * H_mat)
+
+@jax.jit
+def func_val_from_free_fermion_h_params(params, dU_mat):
+    U = jax_get_free_fermion_gate(params)
+    Ud = U.T.conj()
+    return jnp.tensordot(dU_mat, Ud, axes=2).real
+
+@jax.jit
+def jax_gradient_from_free_fermion_h_params(params, dU_mat):
+    return jax.grad(func_val_from_free_fermion_h_params, 0)(params, dU_mat)
+
 def gradient_from_free_fermion_h_params(params, dU_mat):
     """
     Compute the gradient of the free fermion unitary gate with respect to the parameters.
@@ -685,7 +712,34 @@ def gradient_from_free_fermion_h_params(params, dU_mat):
     np.ndarray
         Gradient of the free fermion unitary gate.
     """
-    raise NotImplementedError("Free fermion gate gradient is not implemented yet.")
+    return np.array(jax_gradient_from_free_fermion_h_params(params, dU_mat))
+
+# -----------------------------------------------------------------------------
+@jax.jit
+def jax_get_fermionic_gate(h_params):
+    """
+    Same as get_fermionic_gate but using jax.numpy
+    """
+    H_mat_real = jnp.array([[h_params[0], 0, 0, h_params[1]],
+                            [0, h_params[2], h_params[3], 0],
+                            [0, h_params[3], h_params[4], 0],
+                            [h_params[1], 0, 0, h_params[5]]])
+    H_mat_imag = jnp.array([[0, 0, 0, 1j*h_params[6]],
+                            [0, 0, 1j*h_params[7], 0],
+                            [0, -1j*h_params[7], 0, 0],
+                            [-1j*h_params[6], 0, 0, 0]])
+    H_mat = H_mat_real + H_mat_imag
+    return jax_expm(-1j * H_mat)
+
+@jax.jit
+def func_val_from_fermionic_h_params(params, dU_mat):
+    U = jax_get_fermionic_gate(params)
+    Ud = U.T.conj()
+    return jnp.tensordot(dU_mat, Ud, axes=2).real
+
+@jax.jit
+def jax_gradient_from_fermionic_h_params(params, dU_mat):
+    return jax.grad(func_val_from_fermionic_h_params, 0)(params, dU_mat)
 
 def gradient_from_fermionic_h_params(params, dU_mat):
     """
@@ -703,4 +757,4 @@ def gradient_from_fermionic_h_params(params, dU_mat):
     np.ndarray
         Gradient of the fermionic unitary gate.
     """
-    raise NotImplementedError("Fermionic gate gradient is not implemented yet.")
+    return np.array(jax_gradient_from_fermionic_h_params(params, dU_mat))
