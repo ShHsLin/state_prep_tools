@@ -1,6 +1,5 @@
 import numpy as np
 import scipy
-import pickle
 import copy
 import stateprep.utils.misc as misc
 from stateprep.exact_sim import StateVector
@@ -48,6 +47,7 @@ class Circuit():
         Save the pairs of indices and unitaries to a file.
         We cast the unitaries back to np.ndarray.
         '''
+        import pickle
         with open(filename, "wb") as f:
             pairs_of_indices_and_Us = [(idx, np.array(U)) for idx, U in self.pairs_of_indices_and_Us]
             pickle.dump(pairs_of_indices_and_Us, f)
