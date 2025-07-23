@@ -304,7 +304,7 @@ class QubitCircuit(Circuit):
                 unitary_indices, U_actual = self.pairs_of_indices_and_Us[idx]
                 if type(U_actual) == np.ndarray:
                     U_actual = U1UnitaryGate(U_actual.reshape([4, 4]))
-                    # [TODO] we should actualy define a fermionic gate class
+                    # [TODO] we should actually define a fermionic gate class
                     # [TODO] We should implement a function to identify the class
                     # [TODO] We should implement test assert in the gate class to avoid wrongly assign class
 
@@ -338,7 +338,7 @@ class QubitCircuit(Circuit):
 
                 if type(U) == np.ndarray:
                     U = U1UnitaryGate(U.reshape([4, 4]))
-                    # [TODO] we should actualy define a fermionic gate class
+                    # [TODO] we should actually define a fermionic gate class
                     # [TODO] We should implement a function to identify the class
                     # [TODO] We should implement test assert in the gate class to avoid wrongly assign class
 
@@ -498,7 +498,7 @@ def transform_to_nearest_neighbor_qubit_circuit(qubit_circuit):
 def removing_SWAP_from_nearest_neighbor_qubit_circuit(qubit_circuit):
     '''
     Simplify a nearest neighbor qubit circuit by removing the SWAP gates
-    that are from tansforming a generic qubit circuit to a nearest neighbor
+    that are from transforming a generic qubit circuit to a nearest neighbor
     qubit circuit. This function is similar to the export_FermionicCircuit
     function, but we pull out the SWAP gates here.
 
