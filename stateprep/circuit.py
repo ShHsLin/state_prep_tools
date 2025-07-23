@@ -35,6 +35,7 @@ class Circuit():
             self.trainable = trainable
 
         self.num_trainable_gates = self.trainable.count(True)
+        self.shapes_of_params = None
 
     def get_params(self):
         raise NotImplementedError('get_params is not implemented.')
@@ -160,6 +161,23 @@ class QubitCircuit(Circuit):
 
         return iter_state.state_vector
 
+    def evolve_from(self, init_state):
+        '''
+        Evolve the initial state using the circuit.
+        [This is a convenience method that calls to_state_vector()]
+
+        Parameters
+        ----------
+            init_state: np.ndarray
+            the initial state
+
+        Returns
+        -------
+            np.ndarray
+            the final state after applying the circuit
+        '''
+        return self.to_state_vector(init_state)
+
     def get_params(self):
         '''
         Get the parameters of the circuit.
@@ -175,6 +193,42 @@ class QubitCircuit(Circuit):
             if self.trainable[idx]:
                 params.append(U.get_parameters())
 
+        # Cache the shapes of the parameters
+        self.shapes_of_params = [p.shape for p in params]
+        return params
+
+    def get_concatenated_params(self):
+        '''
+        Returns a 1D np.ndarray of all parameters concatenated.
+        '''
+        params = self.get_params()
+        return np.concatenate([p.ravel() for p in params])
+
+    def unconcat_params(self, concatenated_params):
+        """
+        Undo the concatenation of parameters into a list of arrays.
+
+        Parameters
+        ----------
+            concatenated_params: np.ndarray
+                The concatenated parameters.
+        Returns
+        -------
+            List[np.ndarray]
+                The list of un-concatenated parameters.
+        """
+        if self.shapes_of_params is None:
+            self.get_params()
+
+        params = []
+        idx = 0
+        for shape in self.shapes_of_params:
+            size = np.prod(shape)
+            param = concatenated_params[idx:idx + size].reshape(shape)
+            params.append(param)
+            idx += size
+
+        assert idx == len(concatenated_params), "Concatenated parameters do not match the expected length."
         return params
 
     def set_params(self, params):
@@ -187,8 +241,11 @@ class QubitCircuit(Circuit):
             the parameters of the circuit
         '''
         if params.ndim == 1:
-            params = params.reshape(self.trainable.count(True), -1)
-            assert params.shape[1] in [6, 16]
+            # This is wrong. Each gate can have different number of parameters.
+            # params = params.reshape(self.trainable.count(True), -1)
+
+            # We need to unconcat the parameters
+            params = self.unconcat_params(params)
 
         assert len(params) == self.trainable.count(True)
         params_idx = 0

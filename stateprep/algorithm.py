@@ -97,7 +97,7 @@ def basis_transformation_with_gradient_descent(qubit_circuit,
                                                verbose=False,
                                                ):
     iter_circ = qubit_circuit.copy()
-    iter_circ_params = np.array(iter_circ.get_params()).flatten()
+    iter_circ_params = iter_circ.get_concatenated_params()
 
     def f_and_g(params):
         iter_circ.set_params(params)
@@ -105,7 +105,7 @@ def basis_transformation_with_gradient_descent(qubit_circuit,
                                             list_of_target_states,
                                             list_of_initial_states,
                                             verbose=verbose)
-        g = np.array(grads).flatten()
+        g = np.concatenate([grad.flatten() for grad in grads])
         return cost, g
 
 
