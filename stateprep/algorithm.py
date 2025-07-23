@@ -161,7 +161,7 @@ def energy_minimization_with_gradient_descent(qubit_circuit,
         The optimized qubit circuit after energy minimization.
     """
     iter_circ = qubit_circuit.copy()
-    iter_circ_params = np.array(iter_circ.get_params()).flatten()
+    iter_circ_params = iter_circ.get_concatenated_params()
     H = Hamiltonian
     E = iter_circ.get_energy(H, init_vec)
 
@@ -173,8 +173,8 @@ def energy_minimization_with_gradient_descent(qubit_circuit,
     def f_and_g(params):
         iter_circ.set_params(params)
         E = iter_circ.get_energy(H, init_vec)
-        g = iter_circ.get_energy_gradient(H, init_vec)
-        g = np.array(g).flatten()
+        grads = iter_circ.get_energy_gradient(H, init_vec)
+        g = np.concatenate([grad.flatten() for grad in grads])
         return E.real, g
 
     # result = scipy.optimize.minimize(f, iter_circ_params, method='L-BFGS-B', options={'disp': True})
