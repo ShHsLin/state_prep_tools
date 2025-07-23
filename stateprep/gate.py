@@ -20,7 +20,7 @@ gate.py:
 		get_decomp_params()
 		get_dU_dp()
 
-The class is consturcted by subclassing the numpy.ndarray class.
+The class is constructed by subclassing the numpy.ndarray class.
 Additional class methods are added to the class to
     1. compute the parameters of the unitary gate.
     2. compute the derivative of the unitary gate with respect to the parameters.
