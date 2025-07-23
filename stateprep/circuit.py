@@ -35,6 +35,8 @@ class Circuit():
             assert len(trainable) == self.num_gates
             self.trainable = trainable
 
+        self.num_trainable_gates = self.trainable.count(True)
+
     def get_params(self):
         raise NotImplementedError('get_params is not implemented.')
 
@@ -332,31 +334,22 @@ class QubitCircuit(Circuit):
         for gate_idx in range(self.num_gates-1, -1, -1):
             indices, U = self.pairs_of_indices_and_Us[gate_idx]
 
-            idx0, idx1 = indices
-            if idx0 > idx1:
-                SWAP = True
-                idx0, idx1 = idx1, idx0
+            if not self.trainable[gate_idx]:
+                pass
+                # If the gate is not trainable, we still need
+                # to apply the gate to the state vectors
             else:
-                SWAP = False
-
-            top_theta = np.reshape(top_vec.state_vector,
-                                   [(2**idx0), 2, 2**(idx1-idx0-1), 2, 2**(self.num_qubits-(idx1+1))])
-            bottom_theta = np.reshape(bottom_vec.state_vector,
-                                      [(2**idx0), 2, 2**(idx1-idx0-1), 2, 2**(self.num_qubits-(idx1+1))])
-            # [left, i, mid, j, right]
-            env = np.tensordot(top_theta.conj(), bottom_theta, axes=([0, 2, 4], [0, 2, 4]))
-            if SWAP:
-                env = np.transpose(env, [1, 0, 3, 2])
-
-            list_of_envs[gate_idx] = env
+                ####################################################
+                # Compute the environment for the gate
+                ####################################################
+                env = misc.get_env(top_vec.state_vector, bottom_vec.state_vector, indices, self.num_qubits)
+                list_of_envs[gate_idx] = env
 
             Ud = U.T.conj().reshape([2, 2, 2, 2])
             U = np.reshape(U, [2, 2, 2, 2])
 
-            # Contract Ud to |bottom>
-            bottom_vec.apply_gate(Ud, indices)
-            # Contract Ud to |top>
-            top_vec.apply_gate(Ud, indices)
+            bottom_vec.apply_gate(Ud, indices)  # Contract Ud to |bottom>
+            top_vec.apply_gate(Ud, indices)  # Contract Ud to |top>
 
             # This is because we have the structure
             # <top | bottom> = < new_top | Ud | bottom> = < new_top | new_bottom>
@@ -367,16 +360,22 @@ class QubitCircuit(Circuit):
         assert np.isclose(E, top_vec.state_vector.conj() @ bottom_vec.state_vector)
 
         # The gradient is given by the derivative of the energy with
-        # respect to the parameters
-        # dE/dp = dE/dU * dU/dp
+        # respect to the parameters dE / dp = dE/d(Ud) * d(Ud)/dp
         grads = []
         for gate_idx in range(self.num_gates):
+            if not self.trainable[gate_idx]:
+                continue
+
             env = list_of_envs[gate_idx].reshape([4, 4])
             U = self.pairs_of_indices_and_Us[gate_idx][1]
             # U(i,[j]) env_([j],i)
-            dU_mat = U.T @ env
-            U_grad = U.get_gradient(dU_mat)
+            dUd_mat = U.T @ env
+            ## cost = f(Ud) = Tr (Ud @ dUd_mat)
+            U_grad = U.get_gradient(dUd_mat)
             grads.append(U_grad)
+
+        assert len(grads) == self.num_trainable_gates, \
+            f"Expected {self.num_trainable_gates} gradients, got {len(grads)}"
 
         return grads
 

@@ -1,4 +1,9 @@
-# Classical tools for quantum state preparation and simulation
+# CUE-Q
+
+**CUE-Q** (Classical Utilities and Emulation for Quantum state preparation) is a modular classical toolkit...
+
+
+### Classical tools for quantum state preparation and simulation
 
 We provide a set of classical tools for quantum state preparation and simulation.
 The emphasis and assumption are on "classical", in the sense that at least one of

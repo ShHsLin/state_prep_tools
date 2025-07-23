@@ -4,6 +4,7 @@ build-backend = "setuptools.build_meta"
 
 # state preparation tools
 [project]
+# name = "QPrep"
 name = "StatePrep"
 version = "0.0.1"
 description = "Toolkit for developing classical and quantum algorithms with quantum circuit to preparae target states."
@@ -28,7 +29,7 @@ dependencies = [
   # "pennylane",
   # "pennylane-qiskit",
   "jax[cpu]",
-  "pickle",
+  # "pickle",
   # "physics-tenpy",
 ]
 

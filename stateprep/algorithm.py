@@ -18,25 +18,29 @@ different methods.
 
 def fidelity_maximization(qubit_circuit,
                           target_state,
-                          init_state=None,
+                          initial_state=None,
                           method='polar_decomposition',
                           num_steps=1000,
                           verbose=False,
                           ):
     # One target state. Calling one of the basis transformation functions.
     if method == 'polar_decomposition':
-        qubit_circuit = basis_transformation_with_polar_decomposition(qubit_circuit,
-                                                                      [target_state, ],
-                                                                      [init_state, ],
-                                                                      num_steps=num_steps,
-                                                                      verbose=verbose)
+        qubit_circuit, info = basis_transformation_with_polar_decomposition(qubit_circuit,
+                                                                            [target_state, ],
+                                                                            [initial_state, ],
+                                                                            num_steps=num_steps,
+                                                                            verbose=verbose)
     elif method == 'gradient_descent':
-        qubit_circuit = basis_transformation_with_gradient_descent(qubit_circuit,
-                                                                   )
+        qubit_circuit, info = basis_transformation_with_gradient_descent(qubit_circuit,
+                                                                         [target_state,],
+                                                                         [initial_state,],
+                                                                         num_steps=num_steps,
+                                                                         verbose=verbose,
+                                                                         )
     else:
         raise ValueError("Unknown method: {}".format(method))
 
-    return qubit_circuit
+    return qubit_circuit, info
 
 def basis_transformation_with_polar_decomposition(qubit_circuit,
                                                   list_of_target_states,
@@ -87,8 +91,33 @@ def basis_transformation_with_polar_decomposition(qubit_circuit,
     return C, info
 
 def basis_transformation_with_gradient_descent(qubit_circuit,
+                                               list_of_target_states,
+                                               list_of_initial_states,
+                                               num_steps=1000,
+                                               verbose=False,
                                                ):
-    raise NotImplementedError("This function is not implemented yet.")
+    iter_circ = qubit_circuit.copy()
+    iter_circ_params = np.array(iter_circ.get_params()).flatten()
+
+    def f_and_g(params):
+        iter_circ.set_params(params)
+        cost, grads = get_fidelity_gradient(iter_circ,
+                                            list_of_target_states,
+                                            list_of_initial_states,
+                                            verbose=verbose)
+        g = np.array(grads).flatten()
+        return cost, g
+
+
+    result = scipy.optimize.minimize(f_and_g,
+                                     iter_circ_params,
+                                     method='L-BFGS-B',
+                                     options={'disp': verbose},
+                                     jac=True)
+
+    iter_circ_params = result.x
+    iter_circ.set_params(iter_circ_params)
+    return iter_circ, result
 
 def energy_minimization_with_polar_decomposition(qubit_circuit,
                                                  Hamiltonian,
@@ -155,8 +184,6 @@ def energy_minimization_with_gradient_descent(qubit_circuit,
         return E.real, g
 
     # result = scipy.optimize.minimize(f, iter_circ_params, method='L-BFGS-B', options={'disp': True})
-    # iter_circ_params = result.x
-
     result = scipy.optimize.minimize(f_and_g, iter_circ_params,
                                      method='L-BFGS-B',
                                      options={'disp': verbose},
@@ -165,7 +192,147 @@ def energy_minimization_with_gradient_descent(qubit_circuit,
     iter_circ.set_params(iter_circ_params)
     return iter_circ
 
-def polar_opt(qubit_circuit, list_of_target_states, list_of_initial_states,
+def get_fidelity_gradient(qubit_circuit,
+                          list_of_target_states,
+                          list_of_initial_states,
+                          verbose=False):
+    '''
+    We compute the gradient of the unitary parameters in temrs of
+    the sum of fidelity of the target states and the initial states.
+    U = ArgMax_U [ \\sum |<vec_target_i | U |vec_initial_i>|^2 ]
+
+    d cost      d cost    d Ud
+    ------  =   ------ *  ----
+    d p         d Ud      d p
+    where p are the parameters of the unitary.
+    The first term is
+    v1: - sum_i < target_state_i | bottom_state_i > * < d(Ud) bottom_state_i | target_state_i >
+    v2: - sum_i < target_state_i | dU bottom_state_i > * < bottom_state_i | target_state_i >
+
+    We implement v2 now.
+
+    . We perform a sweep from bottom to top to collect all bottom states.
+    . |bottom_state_i> = U |initial_state_i>
+    . We compute <vec_target_i | bottom_state_i> for each i.
+    . We perform a sweep from top back tot bottom to get all the
+      gradient environments.
+    . We compute the gradients for all the Us.
+
+    The algorithm is as follows:
+    We utilize the intermediate states including the list of
+    top states and the list of bottom states.
+
+    When sweeping from top to bottom, we remove one unitary from
+    the current circuit (bottom_states) at a time by applying the
+    conjugated unitary to the current states.
+    Combining with the target states (top), we form the environment.
+    Once a new unitary is obtained, it is then applied to the
+    "bra", i.e., the top states.
+
+    In this way, we do not store the intermediate state
+    representation. We avoid it by removing the unitary
+    iteratively.
+    There is no disadvantage in doing so, as the simulation is
+    exact.
+
+    Parameters
+    ----------
+        list_of_target_states: List[np.ndarray]
+        the target states
+
+        list_of_initial_states: List[np.ndarray]
+        the initial states
+
+        verbose: bool
+        whether to print out the error
+    '''
+    # Preparing the bottom states
+    num_states = len(list_of_target_states)
+
+    list_of_bottom_states = [StateVector(initial_state) for initial_state in list_of_initial_states]
+    for gate_idx in range(qubit_circuit.num_gates):
+        gate = qubit_circuit.pairs_of_indices_and_Us[gate_idx][1]
+        indices = qubit_circuit.pairs_of_indices_and_Us[gate_idx][0]
+        gate = np.reshape(gate, [2, 2, 2, 2])
+        for state_idx in range(len(list_of_bottom_states)):
+            list_of_bottom_states[state_idx].apply_gate(gate, indices)
+
+    # Preparing the top states
+    list_of_top_states = [StateVector(target_state) for target_state in list_of_target_states]
+
+    overlap_list = []
+    cost = num_states
+    for state_idx in range(num_states):
+        top_vec = list_of_top_states[state_idx].state_vector
+        bottom_vec = list_of_bottom_states[state_idx].state_vector
+        # < target_state_i | bottom_state_i >
+        overlap = np.dot(top_vec.conj(), bottom_vec)
+        overlap_list.append(overlap)
+        cost -= np.square(np.abs(overlap))
+
+    if verbose:
+        print('Error:', cost)
+
+    list_of_envs_wo_U = [None] * qubit_circuit.num_gates
+    # We now sweep from top to bottom
+    for gate_idx in range(qubit_circuit.num_gates-1, -1, -1):
+        remove_gate = qubit_circuit.pairs_of_indices_and_Us[gate_idx][1]
+        remove_indices = qubit_circuit.pairs_of_indices_and_Us[gate_idx][0]
+        remove_gate_conj = remove_gate.reshape([4, 4]).T.conj()
+        remove_gate_conj = remove_gate_conj.reshape([2, 2, 2, 2])
+
+        for state_idx in range(num_states):
+            list_of_bottom_states[state_idx].apply_gate(remove_gate_conj, remove_indices)
+
+        # Now the bottom states are the states without remove_gate.
+        # We can now get the environment without the remove_gate.
+
+        # --------------------------------------------------------------------
+        if not qubit_circuit.trainable[gate_idx]:
+            # we don't need to compute the environment
+            pass
+        else:
+            weighted_sum_env = np.zeros([2, 2, 2, 2], dtype=np.complex128)
+            for state_idx in range(num_states):
+                env = misc.get_env(list_of_top_states[state_idx].state_vector,
+                                   list_of_bottom_states[state_idx].state_vector,
+                                   remove_indices,
+                                   qubit_circuit.num_qubits)
+                weighted_sum_env += (-1 * overlap_list[state_idx].conj() * env)
+
+            list_of_envs_wo_U[gate_idx] = weighted_sum_env
+        # --------------------------------------------------------------------
+
+        for state_idx in range(num_states):
+            list_of_top_states[state_idx].apply_gate(remove_gate_conj, remove_indices)
+
+    for state_idx in range(num_states):
+        assert np.allclose(list_of_bottom_states[state_idx].state_vector,
+                           list_of_initial_states[state_idx])
+
+    # The gradient is given by the derivative of the cost with
+    # respect to the parameters dC / dp = dC/d(U) * d(U)/dp
+    grads = []
+    for gate_idx in range(qubit_circuit.num_gates):
+        if not qubit_circuit.trainable[gate_idx]:
+            continue
+
+        env = list_of_envs_wo_U[gate_idx].reshape([4, 4])
+        # Currently, we have f = sum_ij env_ij, U_ij
+        U = qubit_circuit.pairs_of_indices_and_Us[gate_idx][1]
+        # The convention for input is
+        # cost = f(Ud) = Tr (Ud @ dUd_mat)
+        U_grad = U.get_gradient(env.T.conj())
+        grads.append(U_grad)
+
+    assert len(grads) == qubit_circuit.num_trainable_gates, \
+        f"Expected {qubit_circuit.num_trainable_gates} gradients, got {len(grads)}"
+
+    return cost, grads
+
+def polar_opt(qubit_circuit,
+              list_of_target_states,
+              list_of_initial_states,
               list_of_bottom_states=None,
               verbose=False):
     '''
@@ -213,7 +380,7 @@ def polar_opt(qubit_circuit, list_of_target_states, list_of_initial_states,
     # Preparing the bottom states
     num_states = len(list_of_target_states)
     if list_of_bottom_states is None:
-        list_of_bottom_states = [StateVector(init_state) for init_state in list_of_initial_states]
+        list_of_bottom_states = [StateVector(initial_state) for initial_state in list_of_initial_states]
         for gate_idx in range(qubit_circuit.num_gates):
             gate = qubit_circuit.pairs_of_indices_and_Us[gate_idx][1]
             indices = qubit_circuit.pairs_of_indices_and_Us[gate_idx][0]

@@ -85,3 +85,59 @@ def get_random_2q_gate(using_complex=True, scale=1e-4):
     M = M * scale + np.eye(4)
     Q, R = np.linalg.qr(M)
     return Q
+
+def gen_vec_from_dict(string_coeff_dict, using_complex=True):
+    """
+    Generate a vector from a dictionary of string coefficients.
+    The keys of the dictionary are strings representing the states,
+    and the values are the coefficients for those states.
+    """
+    one_key = next(iter(string_coeff_dict))
+    L = len(one_key)
+    if using_complex:
+        vec = np.zeros(2**L, dtype=np.complex128)
+    else:
+        vec = np.zeros(2**L, dtype=np.float64)
+
+    for key, coeff in string_coeff_dict.items():
+        index = int(key, 2)
+        vec[index] = coeff
+
+    return vec
+
+def get_env(top_state, bottom_state, indices, num_qubits):
+    """
+    Generate the environment tensor for the given top and bottom state vectors
+    based on the specified indices.
+    Parameters:
+    ----------
+    top_state: np.ndarray
+        The state vector of the top tensor. (without complex conjugation)
+    bottom_state: np.ndarray
+        The state vector of the bottom tensor. (without complex conjugation)
+    indices: tuple
+        A tuple containing the indices that left open.
+    num_qubits: int
+
+    Returns:
+    -------
+    env: np.ndarray
+        <top | bottom> with (i'j',ij) indices not contracted.
+    """
+    idx0, idx1 = indices
+    if idx0 > idx1:
+        swap_indices = True
+        idx0, idx1 = idx1, idx0
+    else:
+        swap_indices = False
+
+    top_theta = np.reshape(top_state,
+                           [(2**idx0), 2, 2**(idx1-idx0-1), 2, 2**(num_qubits-(idx1+1))])
+    bottom_theta = np.reshape(bottom_state,
+                              [(2**idx0), 2, 2**(idx1-idx0-1), 2, 2**(num_qubits-(idx1+1))])
+    # [left, i, mid, j, right]
+    env = np.tensordot(top_theta.conj(), bottom_theta, axes=([0, 2, 4], [0, 2, 4]))
+    if swap_indices:
+        env = np.transpose(env, [1, 0, 3, 2])
+
+    return env
