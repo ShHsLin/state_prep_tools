@@ -317,6 +317,10 @@ def get_fidelity_gradient(qubit_circuit,
         # The convention for input is
         # cost = f(Ud) = Tr (Ud @ dUd_mat)
         U_grad = U.get_gradient(env.T.conj())
+
+        # There is a factor of 2 in the gradient
+        U_grad *= 2.0
+
         grads.append(U_grad)
 
     assert len(grads) == qubit_circuit.num_trainable_gates, \
