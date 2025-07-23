@@ -429,6 +429,9 @@ class QubitCircuit(Circuit):
             dUd_mat = U.T @ env
             ## cost = f(Ud) = Tr (Ud @ dUd_mat)
             U_grad = U.get_gradient(dUd_mat)
+
+            # There is a factor of 2
+            U_grad *= 2
             grads.append(U_grad)
 
         assert len(grads) == self.num_trainable_gates, \
